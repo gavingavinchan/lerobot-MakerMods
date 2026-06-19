@@ -175,6 +175,7 @@ lerobot-dataset-viz="lerobot.scripts.lerobot_dataset_viz:main"
 lerobot-info="lerobot.scripts.lerobot_info:main"
 lerobot-find-joint-limits="lerobot.scripts.lerobot_find_joint_limits:main"
 lerobot-imgtransform-viz="lerobot.scripts.lerobot_imgtransform_viz:main"
+lerobot-stream-feetech-telemetry="lerobot.scripts.lerobot_stream_feetech_telemetry:main"
 
 # ---------------- Tool Configurations ----------------
 [tool.setuptools.packages.find]

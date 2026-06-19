@@ -38,5 +38,9 @@ class BiSO101FollowerConfig(RobotConfig):
     right_arm_max_relative_target: int | None = None
     right_arm_use_degrees: bool = False
 
+    # Extra Feetech registers to poll from both follower arms and include in observations.
+    include_servo_telemetry: bool = False
+    servo_telemetry: list[str] = field(default_factory=list)
+
     # cameras (shared between both arms)
-    cameras: dict[str, CameraConfig] = field(default_factory=dict) 
+    cameras: dict[str, CameraConfig] = field(default_factory=dict)

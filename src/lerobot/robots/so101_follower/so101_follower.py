@@ -33,6 +33,16 @@ from .config_so101_follower import SO101FollowerConfig
 
 logger = logging.getLogger(__name__)
 
+SO101_SERVO_TELEMETRY_REGISTERS = {
+    "velocity": "Present_Velocity",
+    "load": "Present_Load",
+    "voltage": "Present_Voltage",
+    "temperature": "Present_Temperature",
+    "status": "Status",
+    "moving": "Moving",
+    "current": "Present_Current",
+}
+
 
 class SO101Follower(Robot):
     """
@@ -65,6 +75,27 @@ class SO101Follower(Robot):
         return {f"{motor}.pos": float for motor in self.bus.motors}
 
     @property
+    def _enabled_servo_telemetry(self) -> dict[str, str]:
+        telemetry = self.config.servo_telemetry
+        if self.config.include_servo_telemetry and not telemetry:
+            telemetry = list(SO101_SERVO_TELEMETRY_REGISTERS)
+
+        unknown = set(telemetry) - set(SO101_SERVO_TELEMETRY_REGISTERS)
+        if unknown:
+            supported = ", ".join(SO101_SERVO_TELEMETRY_REGISTERS)
+            raise ValueError(
+                f"Unsupported SO101 servo telemetry fields: {sorted(unknown)}. Supported: {supported}"
+            )
+
+        return {field: SO101_SERVO_TELEMETRY_REGISTERS[field] for field in telemetry}
+
+    @property
+    def _servo_telemetry_ft(self) -> dict[str, type]:
+        return {
+            f"{motor}.{field}": float for motor in self.bus.motors for field in self._enabled_servo_telemetry
+        }
+
+    @property
     def _cameras_ft(self) -> dict[str, tuple]:
         return {
             cam: (self.config.cameras[cam].height, self.config.cameras[cam].width, 3) for cam in self.cameras
@@ -72,7 +103,7 @@ class SO101Follower(Robot):
 
     @cached_property
     def observation_features(self) -> dict[str, type | tuple]:
-        return {**self._motors_ft, **self._cameras_ft}
+        return {**self._motors_ft, **self._servo_telemetry_ft, **self._cameras_ft}
 
     @cached_property
     def action_features(self) -> dict[str, type]:
@@ -180,6 +211,13 @@ class SO101Follower(Robot):
         obs_dict = {f"{motor}.pos": val for motor, val in obs_dict.items()}
         dt_ms = (time.perf_counter() - start) * 1e3
         logger.debug(f"{self} read state: {dt_ms:.1f}ms")
+
+        for field, register in self._enabled_servo_telemetry.items():
+            start = time.perf_counter()
+            values = self.bus.sync_read(register, normalize=False)
+            obs_dict.update({f"{motor}.{field}": float(val) for motor, val in values.items()})
+            dt_ms = (time.perf_counter() - start) * 1e3
+            logger.debug(f"{self} read {register}: {dt_ms:.1f}ms")
 
         # Capture images from cameras
         for cam_key, cam in self.cameras.items():

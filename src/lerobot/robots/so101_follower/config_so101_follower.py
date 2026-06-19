@@ -39,3 +39,9 @@ class SO101FollowerConfig(RobotConfig):
 
     # Set to `True` for backward compatibility with previous policies/dataset
     use_degrees: bool = False
+
+    # Extra Feetech registers to poll and include in observations.
+    # Use `include_servo_telemetry=True` to include all supported telemetry fields, or set
+    # `servo_telemetry` to a subset such as ["velocity", "current", "temperature"].
+    include_servo_telemetry: bool = False
+    servo_telemetry: list[str] = field(default_factory=list)

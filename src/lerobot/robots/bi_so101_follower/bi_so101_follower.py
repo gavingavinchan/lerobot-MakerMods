@@ -61,6 +61,8 @@ class BiSO101Follower(Robot):
             disable_torque_on_disconnect=config.left_arm_disable_torque_on_disconnect,
             max_relative_target=config.left_arm_max_relative_target,
             use_degrees=config.left_arm_use_degrees,
+            include_servo_telemetry=config.include_servo_telemetry,
+            servo_telemetry=config.servo_telemetry,
             cameras={},
         )
 
@@ -71,6 +73,8 @@ class BiSO101Follower(Robot):
             disable_torque_on_disconnect=config.right_arm_disable_torque_on_disconnect,
             max_relative_target=config.right_arm_max_relative_target,
             use_degrees=config.right_arm_use_degrees,
+            include_servo_telemetry=config.include_servo_telemetry,
+            servo_telemetry=config.servo_telemetry,
             cameras={},
         )
 
@@ -172,4 +176,4 @@ class BiSO101Follower(Robot):
         self.right_arm.disconnect()
 
         for cam in self.cameras.values():
-            cam.disconnect() 
+            cam.disconnect()
