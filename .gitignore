@@ -81,6 +81,10 @@ coverage.xml
 
 ### Logs & Temporary Files ###
 logs/
+!logs/
+logs/*
+!logs/servo_comparison_2026-06-24/
+!logs/servo_comparison_2026-06-24/**
 tmp/
 *.log
 pip-log.txt
@@ -179,3 +183,6 @@ outputs/
 *.part
 *.pen
 .cursor/rules/stservo-reference.mdc
+
+# FD servo debugging software
+/FD1.9.8.3/

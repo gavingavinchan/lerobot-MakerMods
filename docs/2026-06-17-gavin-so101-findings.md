@@ -503,14 +503,107 @@ The only confirmed placement so far is:
 
 The comparison tests used position mode with a 512-tick movement (about 45 degrees),
 then returned to the starting position. Each test repeated this for three cycles.
-The nominal register settings were:
+The original test method was later confirmed on the machine where the tests ran.
+It used plain `Goal_Position` writes, not `WritePosEx`, `RegWritePosEx`, or
+`RegAction`.
 
-- `Operating_Mode = 0` (position mode)
+Setup sequence:
+
+```python
+bus.disable_torque(list(motors), num_retry=3)
+bus.sync_write("Operating_Mode", {n: 0 for n in motors}, normalize=False, num_retry=3)
+bus.sync_write("Acceleration", {n: 8 for n in motors}, normalize=False, num_retry=3)
+bus.sync_write("Goal_Velocity", {n: 250 for n in motors}, normalize=False, num_retry=3)
+bus.enable_torque(list(motors), num_retry=3)
+```
+
+This wrote the following registers before motion:
+
+- `Torque_Enable = 0`
+- `Lock = 0`
+- `Operating_Mode = 0`
 - `Acceleration = 8`
 - `Goal_Velocity = 250`
-- synchronized `Goal_Position` writes when two servos were connected
+- `Torque_Enable = 1`
+- `Lock = 1`
+
+No PID coefficients, torque limits, protection settings, or position limits were
+changed.
+
+Two-servo movement used one Feetech `GroupSyncWrite` packet through:
+
+```python
+bus.sync_write("Goal_Position", goals, normalize=False, num_retry=3)
+```
+
+Single-servo movement used:
+
+```python
+bus.write("Goal_Position", "C", goal, normalize=False, num_retry=3)
+```
+
+The target was the starting position plus or minus 512 ticks. `Goal_Velocity = 250`
+was written separately before motion and was not included atomically with
+`Goal_Position`.
+
+An earlier single-servo sanity test did use:
+
+```python
+bus.write_pos_ex_and_wait(
+    "servo",
+    target,
+    speed=250,
+    acc=8,
+    timeout_s=8,
+    num_retry=3,
+)
+```
+
+That combined position/speed/acceleration test was separate from the documented
+B+C and C-alone comparisons.
 
 Torque was released after every test.
+
+### Timing, Polling, and Statistics
+
+Movement timing used `time.monotonic()`:
+
+```python
+t0 = time.monotonic()
+bus.sync_write("Goal_Position", goals, normalize=False, num_retry=3)
+
+while True:
+    r = sample(label)
+    elapsed = time.monotonic() - t0
+
+    for n in motors:
+        if reached[n] is None and abs(r[f"{n}_pos"] - goals[n]) <= 12:
+            reached[n] = elapsed
+
+    if all(v is not None for v in reached.values()):
+        break
+
+    time.sleep(0.04)
+```
+
+Each leg ended when `Present_Position` was within 12 ticks of the target. Every
+sample read `Present_Position`, `Present_Velocity`, `Present_Current`,
+`Present_Load`, `Present_Temperature`, and `Status`.
+
+The requested polling delay was 40 ms, but actual intervals were longer because
+six registers were read sequentially from each servo.
+
+Metrics were calculated from nonzero-velocity samples during cycle phases:
+
+```python
+average_duration = statistics.mean(durations[n])
+peak_velocity = max(abs(r[f"{n}_vel"]) for r in moving)
+median_velocity = statistics.median(abs(r[f"{n}_vel"]) for r in moving)
+```
+
+No CSV or persistent raw log was created for these standalone comparisons. The raw
+results existed only in terminal/conversation output; the summary below is the
+persistent record.
 
 ### Results
 
@@ -545,6 +638,48 @@ ports. A controlled B+C rerun with B on the left and C on the right also produce
 B fast (~0.629 s) and C slow (~2.076 s). Therefore the earlier run that reported both
 B and C fast did not reproduce and should be treated as a likely measurement,
 identity/address, or transient command-state artifact rather than stable C behavior.
+
+The confirmed command method rules out the hypothesis that fast B used plain
+`Goal_Position` while slow C used `WritePosEx`: both B and C received the same plain,
+synchronized `Goal_Position` command after identical separate writes of
+`Acceleration = 8` and `Goal_Velocity = 250`. Nevertheless, B reached reported
+velocities around 1550 while C remained around 250-300. The unresolved question is
+why the separately written velocity value constrained C but did not constrain B.
+
+### FD Debug Comparison
+
+The 2026-06-24 Windows FD Debug V1.9.8.3 test of B alone on the left port used its
+combined position/speed/acceleration control, which is comparable to `WritePosEx`,
+not to the original plain `Goal_Position` comparison method. With acceleration 8,
+speed 250, and a 512-tick move, FD reported B velocity around the commanded range
+rather than the earlier 1550 peak. Therefore the FD timing and velocity results are
+not directly comparable to the original standalone metrics.
+
+The exported FD datasets have been organized under:
+
+- `logs/servo_comparison_2026-06-24/`
+- `logs/servo_comparison_2026-06-24/README.md`
+
+The controlled high-speed comparison used SB-C's left port, acceleration 8,
+commanded speed 1000, a 512-tick movement, three cycles, and full FD telemetry.
+Results for A, B, and C were effectively identical:
+
+| Servo | Peak velocity | Median moving velocity | Load range | Max current | Errors |
+|-------|--------------:|-----------------------:|-----------:|------------:|-------:|
+| A | 650 | 350 | -204..204 | 4 | 0 |
+| B | 650 | 350 | -204..204 | 4 | 0 |
+| C | 650 | 350 | -212..212 | 4 | 0 |
+
+Within this controlled test, A showed no mechanical or electrical abnormality
+relative to fresh servos B and C.
+
+Driver-board disposition:
+
+- SB-C is retained as the controlled comparison board.
+- SB-A and SB-B were deemed broken and will be discarded.
+- The B speed-250 SB-A dataset is retained only as historical context.
+- No successful telemetry dataset was collected through SB-B.
+
 Earlier two-servo physical port assignments were not recorded. Future tests must
 record, before motion:
 
