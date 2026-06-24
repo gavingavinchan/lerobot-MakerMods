@@ -239,6 +239,86 @@ Useful scripts added during these tests:
 - `src/lerobot/scripts/lerobot_gripper_telemetry_test.py`
 - `src/lerobot/scripts/lerobot_gripper_cube_release_test.py`
 
+## Raw Packet / Parsed Telemetry Update - 2026-06-19
+
+The latest gripper experiments now capture both sides of the servo conversation:
+
+- Parsed telemetry CSV/PNG from direct SDK register reads.
+- Raw serial TX/RX byte chunks from `scservo_sdk` `PortHandler.writePort` / `readPort`.
+- A decoded packet-level CSV generated from those raw chunks.
+
+New or updated scripts:
+
+- `src/lerobot/scripts/lerobot_gripper_full_telemetry_test.py`
+  - Polls gripper registers directly with `packet_handler.read*ByteTxRx`.
+  - Keeps returned register values even when the servo packet has a non-zero error/protection byte.
+  - Decodes `Present_Load` into signed `load_signed`.
+  - Decodes status/protection bits into `err_voltage`, `err_sensor`,
+    `err_temperature`, `err_current`, and `err_overload`.
+  - Optionally logs raw SDK TX/RX bytes to `*.packets.jsonl`.
+- `src/lerobot/scripts/lerobot_gripper_packet_capture_test.py`
+  - Short open/close/final-open test that records parsed gripper telemetry plus raw packet bytes.
+- `src/lerobot/scripts/lerobot_decode_feetech_packet_log.py`
+  - Offline decoder for packet JSONL logs.
+  - Reassembles split RX chunks into complete Feetech packets.
+  - Verifies checksums.
+  - Labels instructions, register addresses, status/error bytes, and read values.
+
+Latest relevant artifacts:
+
+- `logs/gripper_packet_capture_20260619_152119.csv`
+- `logs/gripper_packet_capture_20260619_152119.jsonl`
+- `logs/gripper_packet_capture_20260619_152119.decoded.csv`
+- `logs/gripper_full_telemetry_20260619_153215.csv`
+- `logs/gripper_full_telemetry_20260619_153215.packets.jsonl`
+- `logs/gripper_full_telemetry_20260619_155057.csv`
+- `logs/gripper_full_telemetry_20260619_155057.packets.jsonl`
+- `logs/gripper_full_telemetry_20260619_155057.packets.decoded.csv`
+
+Decoder commands used:
+
+```bash
+python3 src/lerobot/scripts/lerobot_decode_feetech_packet_log.py \
+  logs/gripper_full_telemetry_20260619_155057.packets.jsonl \
+  --out logs/gripper_full_telemetry_20260619_155057.packets.decoded.csv
+
+python3 src/lerobot/scripts/lerobot_decode_feetech_packet_log.py \
+  logs/gripper_packet_capture_20260619_152119.jsonl \
+  --out logs/gripper_packet_capture_20260619_152119.decoded.csv
+```
+
+Sanity checks from the 2026-06-19 15:50:57 full telemetry run:
+
+- Telemetry rows: `1179`
+- Packet rows decoded: `21296` (`10648` TX + `10648` RX)
+- Bad packet checksums: `0`
+- Gripper register reads decoded per field: `1179` each for `Present_Position`,
+  `Present_Velocity`, `Present_Load`, `Present_Voltage`, `Present_Temperature`,
+  `Moving`, `Present_Current`, `Goal_Position`, and `Status`.
+- Example raw RX packet: `ff ff 06 04 00 e5 0a 06`
+  - Decodes as servo ID `6`, status/error `0`, `Present_Position=2789`.
+  - This matches the first parsed telemetry row in the CSV.
+
+Run-level observations from `logs/gripper_full_telemetry_20260619_155057.csv`:
+
+- Duration: about `63.3 s`
+- Position range: `1264..2822`
+- Goal range: `1234..2860`
+- Current range: `0..41` raw units
+- Signed decoded load range: `-192..288`
+- Voltage range: `105..122` raw tenths of a volt
+- Temperature range: `36..68 C`
+- Only `err_overload` was observed; `err_current`, `err_temperature`, `err_voltage`, and `err_sensor` stayed `0`.
+- Overload was active for `86` samples, from about `20.50 s` to `25.02 s`.
+
+Conclusion:
+
+The experiment now has both parsed servo telemetry and direct raw bytes to/from
+the servo. The remaining improvement is interpretive: keep using
+`Present_Current` and decoded `Present_Load` as effort/contact proxies, but treat
+the overload bit as a protection-state indicator, not as a direct force
+measurement.
+
 ## Full-Telemetry Cube Experiment And Overload Findings (2026-06-19)
 
 A new experiment was added to plot **every** readable gripper value, including the
@@ -394,3 +474,83 @@ conda run -n lerobot python src/lerobot/scripts/lerobot_auto_calibrate_feetech.p
   --save \
   --robot-id default
 ```
+
+## Standalone Servo Comparison Log — 2026-06-24
+
+### Servo Names and IDs
+
+| Name | Description | Current ID |
+|------|-------------|------------|
+| A | Soon-to-be-waterproofed servo | 1 |
+| B | Second servo | 2 |
+| C | Third/new servo | 3 |
+
+### Driver-Board Port Names
+
+The driver board has two servo ports:
+
+- **Left port:** the port closest to the corner of the board.
+- **Right port:** the port closer to the middle of the board's edge.
+
+Port placement was not recorded for the earlier A/B/C comparison runs. Do not infer
+which physical port a servo used in those runs.
+
+The only confirmed placement so far is:
+
+- **C alone, last test on 2026-06-24: left port.**
+
+### Common Test Command
+
+The comparison tests used position mode with a 512-tick movement (about 45 degrees),
+then returned to the starting position. Each test repeated this for three cycles.
+The nominal register settings were:
+
+- `Operating_Mode = 0` (position mode)
+- `Acceleration = 8`
+- `Goal_Velocity = 250`
+- synchronized `Goal_Position` writes when two servos were connected
+
+Torque was released after every test.
+
+### Results
+
+| Connected servos | Servo | Average 45-degree leg | Peak reported velocity | Median moving velocity | Port record |
+|------------------|-------|-----------------------|------------------------|------------------------|-------------|
+| B + C | B | 0.627-0.637 s | 1550 | 875-900 | Unknown |
+| B + C | C | 0.635-0.637 s | 1500-1550 | 850-900 | Unknown |
+| A + C | A | 0.628 s | 1500 | 850 | Unknown |
+| A + C | C | 2.077 s | 300 | 250 | Unknown |
+| C alone | C | 2.065 s | 300 | 250 | **Left** |
+| C alone | C | 2.078 s | 300 | 250 | **Right** |
+| B + C | B | 0.629 s | 1550 | 900 | **Left** |
+| B + C | C | 2.076 s | 300 | 250 | **Right** |
+
+All listed tests reported servo status `0`, normal temperatures, and no protection
+faults. C alone ended at 30 degrees C on the left port and 31 degrees C on the right
+port.
+
+### Unresolved Observation
+
+C's repeatable isolated result on the left port matches its slow result when tested
+with A, but not its fast result when tested with B:
+
+- C alone on left: about 2.065 s per leg.
+- C alone on right: about 2.078 s per leg.
+- C with A: about 2.077 s per leg.
+- C with B: about 0.635 s per leg.
+
+The isolated left/right comparison makes the physical board port an unlikely
+explanation: C's timing and reported velocity were effectively identical on both
+ports. A controlled B+C rerun with B on the left and C on the right also produced
+B fast (~0.629 s) and C slow (~2.076 s). Therefore the earlier run that reported both
+B and C fast did not reproduce and should be treated as a likely measurement,
+identity/address, or transient command-state artifact rather than stable C behavior.
+Earlier two-servo physical port assignments were not recorded. Future tests must
+record, before motion:
+
+1. Which named servo is connected to the left port.
+2. Which named servo is connected to the right port.
+3. Responding servo IDs.
+4. Starting positions and relevant control-register values.
+5. Whether the position command is a normal `Goal_Position` write or a combined
+   position/speed/acceleration (`WritePosEx`) command.

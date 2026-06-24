@@ -17,10 +17,12 @@ Status bit map confirmed against the Feetech STS3215 e-manual / python-st3215.
 
 import argparse
 import csv
+import json
 import math
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -102,8 +104,81 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stall-velocity", type=float, default=8.0, help="|velocity| at/below this is stopped.")
     parser.add_argument("--stall-samples", type=int, default=8, help="Consecutive stopped samples = stalled.")
     parser.add_argument("--no-final-open", action="store_true")
+    parser.add_argument("--no-packet-log", action="store_true", help="Disable raw SDK TX/RX byte logging.")
     parser.add_argument("--retries", type=int, default=2)
     return parser.parse_args()
+
+
+class PacketLogger:
+    """JSONL logger for every byte chunk passed through the SDK serial port."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.f = path.open("w")
+        self.t0 = time.perf_counter()
+        self.index = 0
+
+    def close(self) -> None:
+        self.f.close()
+
+    def log(self, direction: str, data: bytes, *, requested: int | None = None) -> None:
+        row = {
+            "index": self.index,
+            "elapsed_s": time.perf_counter() - self.t0,
+            "direction": direction,
+            "requested": requested,
+            "n_bytes": len(data),
+            "hex": data.hex(" "),
+        }
+        self.f.write(json.dumps(row) + "\n")
+        self.f.flush()
+        self.index += 1
+
+
+def install_packet_logger(bus: FeetechMotorsBus, packet_logger: PacketLogger) -> None:
+    original_write_port = bus.port_handler.writePort
+    original_read_port = bus.port_handler.readPort
+
+    def write_port(packet: Any):
+        data = bytes(packet)
+        packet_logger.log("tx", data, requested=len(data))
+        return original_write_port(packet)
+
+    def read_port(length: int):
+        data = original_read_port(length)
+        packet_logger.log("rx", bytes(data), requested=length)
+        return data
+
+    bus.port_handler.writePort = write_port
+    bus.port_handler.readPort = read_port
+
+
+def write_packet_summary(path: Path, packet_path: Path, rows: list[dict[str, float]]) -> None:
+    tx_chunks = rx_chunks = tx_bytes = rx_bytes = 0
+    nonempty_rx_chunks = 0
+    with packet_path.open() as f:
+        for line in f:
+            row = json.loads(line)
+            if row["direction"] == "tx":
+                tx_chunks += 1
+                tx_bytes += row["n_bytes"]
+            else:
+                rx_chunks += 1
+                rx_bytes += row["n_bytes"]
+                if row["n_bytes"]:
+                    nonempty_rx_chunks += 1
+
+    summary = {
+        "packet_log": str(packet_path),
+        "telemetry_rows": len(rows),
+        "tx_chunks": tx_chunks,
+        "rx_chunks": rx_chunks,
+        "nonempty_rx_chunks": nonempty_rx_chunks,
+        "tx_bytes": tx_bytes,
+        "rx_bytes": rx_bytes,
+        "note": "Packet log records every byte chunk passed through scservo_sdk PortHandler.writePort/readPort.",
+    }
+    path.write_text(json.dumps(summary, indent=2) + "\n")
 
 
 def decode_load(raw: float) -> float:
@@ -364,16 +439,23 @@ def main() -> None:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_path = args.out_dir / f"gripper_full_telemetry_{stamp}.csv"
     png_path = args.out_dir / f"gripper_full_telemetry_{stamp}.png"
+    packet_path = args.out_dir / f"gripper_full_telemetry_{stamp}.packets.jsonl"
+    packet_summary_path = args.out_dir / f"gripper_full_telemetry_{stamp}.packets.summary.json"
 
     bus = FeetechMotorsBus(port=args.port, motors=SO_FOLLOWER_MOTORS)
-    bus.connect()
-    motor_id = bus.motors[MOTOR].id
+    packet_logger = None if args.no_packet_log else PacketLogger(packet_path)
+    if packet_logger is not None:
+        install_packet_logger(bus, packet_logger)
+
     rows: list[dict[str, float]] = []
     marks: list[tuple[float, str]] = []
-    start_t = time.perf_counter()
     min_pos, max_pos = 0, 4095
 
     try:
+        bus.connect()
+        motor_id = bus.motors[MOTOR].id
+        start_t = time.perf_counter()
+
         min_pos = int(bus.read("Min_Position_Limit", MOTOR, normalize=False, num_retry=args.retries))
         max_pos = int(bus.read("Max_Position_Limit", MOTOR, normalize=False, num_retry=args.retries))
         print(f"gripper_min={min_pos} gripper_max={max_pos}", flush=True)
@@ -410,6 +492,11 @@ def main() -> None:
             print(f"plot={png_path}", flush=True)
         if bus.is_connected:
             bus.disconnect(disable_torque=False)
+        if packet_logger is not None:
+            packet_logger.close()
+            write_packet_summary(packet_summary_path, packet_path, rows)
+            print(f"packet_log={packet_path}", flush=True)
+            print(f"packet_summary={packet_summary_path}", flush=True)
 
 
 if __name__ == "__main__":
