@@ -1,0 +1,263 @@
+# Viscous Arm
+
+The Viscous Arm is a 6+1 DOF follower from Viscous Robotics: six revolute joints plus a permanent
+gripper, **all seven RS00** RobStride actuators on one classic CAN bus. LeRobot talks to them
+directly through `python-can` — no ROS, and no vendor SDK at runtime.
+
+It shares its topology, joint names, and driver stack with the [Maker Arm](./maker.mdx). The
+difference is the motors: Maker carries RS02 at `shoulder_lift` and `elbow_flex` for its land
+duty cycle; the Viscous Arm is all-RS00 because it runs neutrally buoyant underwater, where the
+gravity load those two joints fight on a bench largely disappears.
+
+## Bring-up
+
+Everything below is a **one-time procedure for a newly assembled arm**. Skip to
+[Usage](#usage) on an arm that has already been through it.
+
+<Tip warning={true}>
+
+`private` and `MIT` are persistent, mutually exclusive motor protocols. The
+[Maker Arm SDK](https://github.com/makermods-robotics/maker-arm-sdk) speaks only private; LeRobot
+speaks only MIT. Switching to MIT costs you ID assignment, zeroing, and every capture tool, and
+LeRobot has no replacement for any of them.
+
+**Do all SDK-side steps (1–5) first. The protocol switch is the last hardware step.**
+
+</Tip>
+
+### Joint map
+
+Joint number, CAN id, and LeRobot joint name are one-to-one. There is no translation table.
+
+| J | Function | CAN id | LeRobot name | Viscous | Maker |
+| --- | --- | -----: | --- | --- | --- |
+| J1 | base yaw | 1 | `shoulder_pan` | RS00 | RS00 |
+| J2 | shoulder pitch | 2 | `shoulder_lift` | **RS00** | RS02 |
+| J3 | elbow pitch | 3 | `elbow_flex` | **RS00** | RS02 |
+| J4 | wrist pitch | 4 | `wrist_flex` | RS00 | RS00 |
+| J5 | wrist yaw | 5 | `wrist_yaw` | RS00 | RS00 |
+| J6 | wrist roll | 6 | `wrist_roll` | RS00 | RS00 |
+| J7 | gripper | 7 | `gripper` | RS00 | RS00 |
+
+In `RobstrideMotorsBus` tables RS00 is model `O0`.
+
+### Prerequisites
+
+A **CANable 2.0 Pro** on slcan firmware. It is a native USB CDC-ACM device, needs no driver, and
+appears as `/dev/cu.usbmodem*` on macOS, `/dev/ttyACM*` on Linux. The RobStride CH340/CH341
+debug dongle is mute on CAN from Apple Silicon macOS even with WCH's driver installed — do not
+spend time on it.
+
+Install the SDK, used for steps 1–5 only:
+
+```bash
+git clone https://github.com/makermods-robotics/maker-arm-sdk.git
+cd maker-arm-sdk
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -e .
+export CANPORT=/dev/cu.usbmodem1101   # your adapter; `ls /dev/cu.*`
+```
+
+<Tip warning={true}>
+
+The SDK defaults to `--backend socketcan --channel can0`, which is Linux-only. On macOS pass
+`--backend slcan --port "$CANPORT"` to **every** SDK command shown below.
+
+</Tip>
+
+### 1. Assign CAN ids 1–7
+
+Every motor ships as id `127`. Protocol Type 7 addresses a motor *by its current id*, so two
+motors still at 127 on one bus get reassigned together.
+
+The constraint is precisely: **only one motor still at 127 may be on the bus at a time.** Motors
+you have already assigned can stay connected — their ids no longer collide. So you never unplug
+anything; you build the chain up one motor at a time.
+
+This is not a firmware flash. It is a config write that takes effect immediately, with a
+save-to-flash sent after as a fallback, and it is repeatable.
+
+For each joint in order J1 → J7:
+
+```bash
+# 1. connect the next motor, then confirm the bus is what you expect:
+#    every id already assigned, plus exactly one motor at 127
+./.venv/bin/maker-arm scan --backend slcan --port "$CANPORT" --max-id 127
+
+# 2. assign it (N = the joint number)
+./.venv/bin/maker-arm assign-id --backend slcan --port "$CANPORT" \
+    --current-id 127 --new-id N
+
+# 3. verify the chain grew by one
+./.venv/bin/maker-arm scan --backend slcan --port "$CANPORT" --max-id 10
+```
+
+`assign-id` refuses if the current id does not answer, and refuses if the new id is already in
+use. Treat those as a backstop, not a substitute for the scan in step 1.
+
+Scanning between every motor also verifies the daisy chain incrementally: a bad connector shows
+up on the joint that caused it, rather than after all seven are attached.
+
+Raw encoder positions at this stage are arbitrary — a joint reading 4.5 rad is normal. Zeroing is
+step 2.
+
+### 2. Set the mechanical zero
+
+**Define and photograph the reference pose before this step.** Every limit captured in step 3 and
+every leader factor in step 4 is expressed against it. If it cannot be reproduced after a
+teardown, steps 3 and 4 must be re-run. Use a repeatable folded resting pose with the gripper
+fully open.
+
+With the arm torque-free and the joint held at the reference pose:
+
+```bash
+./.venv/bin/maker-arm zero --motor N --backend slcan --port "$CANPORT"
+```
+
+The command requires an explicit target so an operator cannot zero the whole arm by accident.
+
+Zero **here, in the private protocol**. MIT-mode `set_zero` persistence across a power cycle is
+unverified; if a calibration ever vanishes after a power cycle, this is why.
+
+Verify with `maker-arm scan` — every joint should read near 0 rad at the reference pose.
+
+### 3. Capture this arm's joint limits
+
+```bash
+./.venv/bin/python tools/engineering/calibration/capture_maker_limits.py
+```
+
+The limits in `MakerFollowerConfig` are Maker arm #02's mechanical stops, captured with a
+0.05 rad backoff. They do not describe a Viscous Arm. Keep the output JSON — it is the provenance
+for every number that lands in the follower config.
+
+### 4. Capture the Star leader ranges and mapping
+
+```bash
+./.venv/bin/python tools/engineering/calibration/capture_star_ranges.py
+./.venv/bin/python tools/engineering/calibration/calibrate_star_mapping.py
+```
+
+`calibrate_star_mapping.py` sweeps each Star joint stop to stop against the follower joint it
+drives, producing the `direction * scale` factors. Both arms must be present.
+
+The leader preset **only scales and flips — it adds no offset.** The leader's zero must coincide
+with the follower's zero, so calibrate the Star folded to match *this* arm's reference pose.
+
+### 5. Persist the motor-side CAN watchdog
+
+```bash
+./.venv/bin/python tools/experimental/lerobot/persist_can_timeout.py --ids 1,2,3,4,5,6,7
+```
+
+Expect all seven to report "written and saved to flash". If the watchdog is too short, motors
+silently drop torque partway through teleop, which reads exactly like a gain or mapping fault.
+Fallback: switch back to private and re-persist with `--timeout-ms` raised to 1000. Setting it to
+`0` disables the motor-side watchdog entirely — last resort, log it, restore it as soon as
+possible.
+
+### 6. Switch to the MIT protocol
+
+Point of no return for the SDK tooling. Do not start until steps 1–5 are done and their artifacts
+are saved.
+
+```bash
+./.venv/bin/python tools/experimental/lerobot/switch_protocol.py --ids 1,2,3,4,5,6,7 --to mit
+# power-cycle the motors, then confirm the private protocol is dead:
+./.venv/bin/maker-arm scan --backend slcan --port "$CANPORT" --max-id 8   # expect: none found
+```
+
+Underneath this is private-protocol Type 25: magic bytes `1,2,3,4,5,6` then `2` for MIT (`0` for
+private); each motor acks on `(motor_id << 8) | 0xFE`. The motor zero from step 2 carries over.
+
+Rollback is `--to private` plus a power cycle. Do the round trip once deliberately, so you know
+the escape hatch works before you need it.
+
+### 7. Install and verify
+
+```bash
+uv sync --extra maker --extra rebot
+```
+
+`maker` pulls RobStride/CAN; `rebot` pulls `motorbridge-smart-servo`, the FashionStar UART bus
+the Star leader speaks.
+
+Handshake and read with **no torque**, then push a joint by hand and re-read — the value must
+change.
+
+<Tip warning={true}>
+
+**Verify the `O0` model mapping once.** The upstream O-series and RS-series numbering are
+suspected to be offset (`O2` is ±20 Nm/±33 rad/s, a different tier). On an all-RS00 arm this
+assumption covers *every* joint, so if it is wrong, all position and velocity scaling is wrong.
+Spin a joint at fixed speed with `tools/experimental/lerobot/mit_spin.py` and compare MIT
+`Present_Velocity` against the private-protocol reading; a 44/33x discrepancy means the wrong
+model was picked.
+
+</Tip>
+
+## Calibration
+
+Once the arm is in MIT, `lerobot-calibrate` records each motor id and its soft limits against the
+zero set in bring-up step 2:
+
+```bash
+lerobot-calibrate \
+    --robot.type=viscous_follower \
+    --robot.port=/dev/cu.usbmodem1101 \
+    --robot.id=my_viscous_follower
+
+lerobot-calibrate \
+    --teleop.type=rebot_102_leader_viscous \
+    --teleop.port=/dev/cu.usbserial-0001 \
+    --teleop.id=star_viscous
+```
+
+Use a distinct `id` per physical arm and leader so their calibration files do not collide.
+
+## Usage
+
+Same entry points as the Maker Arm — `lerobot-teleoperate`, `lerobot-record`, `lerobot-replay`,
+`lerobot-rollout` — with `--robot.type=viscous_follower` and
+`--teleop.type=rebot_102_leader_viscous`. See [Maker Arm](./maker.mdx) for the full command forms;
+only the type names differ.
+
+Torque-off is the documented safe state and the arm has no brakes, so a torque-off arm settles
+under gravity. Support it before disconnecting.
+
+## Tuning gains
+
+<Tip warning={true}>
+
+**Do not copy the Maker Arm's `shoulder_lift` / `elbow_flex` gains.** Maker runs kp 150 and 90
+there because those slots carry RS02 motors. On the Viscous Arm they are RS00, holding a
+comparable mass against gravity — and on a dry bench with none of the buoyancy the arm is
+designed around, so J2/J3 work harder there than they ever will in water. Start well below the
+Maker values and walk up, and keep early bench sessions short: an RS00 holding a pose it cannot
+comfortably hold sits at high current and heats.
+
+</Tip>
+
+Tuning order: soft tracking → `kp` +10; jitter → `kd` +0.3. Sluggishness at the start of a session
+is usually `startup_sync_speed_deg` and resolves itself once the follower has caught up.
+
+Finish with a **60-second hold test**: keep the leader still with the follower under torque. A
+joint that releases torque or drops out is the step-5 watchdog misbehaving in MIT mode, not a gain
+problem.
+
+## Troubleshooting
+
+**Gripper travel saturates.** Looks exactly like a wrong direction or a bad gain. Check the
+configured `joint_limits` first — placeholder limits saturate long before the mechanism does.
+
+**A joint reads a whole turn off after a power cycle.** RobStride multi-turn counts reset. The
+follower detects this and applies a ±360° correction when a reading only lands inside the soft
+limits after the shift. A reading no single-turn shift explains is treated as a stale zero, and
+the arm refuses to move until it is recalibrated — that refusal is the safety check working.
+
+**A third of observations look repeated in a recorded dataset.** Do not use `sync_read`. Bursting
+seven requests loses replies to the adapter's shallow receive FIFO. The follower reads one motor
+at a time for this reason: about 1 ms per joint, 9.6 ms of a 33 ms period at 30 Hz.
+
+**Motors do not respond at all after step 6.** They are in MIT and the SDK cannot see them — that
+is expected. Verify from the LeRobot side, not with `maker-arm scan`.

@@ -167,6 +167,8 @@
     title: reBot B601-DM
   - local: maker
     title: Maker Arm
+  - local: viscous
+    title: Viscous Arm
   - local: third_party_robots
     title: Third-Party Robots & Teleoperators
   title: "Robots"
