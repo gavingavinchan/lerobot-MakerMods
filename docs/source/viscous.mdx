@@ -123,13 +123,40 @@ Verify with `maker-arm scan` — every joint should read near 0 rad at the refer
 
 ### 3. Capture this arm's joint limits
 
+The limits in `MakerFollowerConfig` are Maker arm #02's mechanical stops. They do not describe a
+Viscous Arm. Capture your own against a profile of your own — never point `--config` at a
+production profile:
+
 ```bash
-./.venv/bin/python tools/engineering/calibration/capture_maker_limits.py
+./.venv/bin/python tools/engineering/calibration/capture_maker_limits.py \
+    --config /path/to/viscous_arm_v1.yaml \
+    --backend slcan --port "$CANPORT" \
+    --json /path/to/rom-raw.json
 ```
 
-The limits in `MakerFollowerConfig` are Maker arm #02's mechanical stops, captured with a
-0.05 rad backoff. They do not describe a Viscous Arm. Keep the output JSON — it is the provenance
-for every number that lands in the follower config.
+It connects **without enabling** — no torque, safe to move by hand — and polls at 10 Hz while you
+push each joint to both mechanical stops. Enter writes the backed-off limits into the YAML (with
+a `.bak`) plus a raw JSON artifact; Ctrl-C exits writing nothing. It needs an interactive
+terminal: without a TTY it monitors but can never write.
+
+Keep the JSON. It is the provenance for every number that reaches the follower config.
+
+<Tip warning={true}>
+
+**Verify every joint actually reached both stops.** The tool only skips a joint whose travel is
+under 0.3 rad, which is far too permissive to catch a partial sweep — a joint swept through 20% of
+its range passes silently and writes a range that fences off most of its workspace.
+
+The cheap check is to compare travel per joint against a known-good arm of the same design. On the
+first Viscous capture, six joints landed within a few percent of the Maker Arm and `wrist_yaw`
+came in at 36° against Maker's 176° — a partial sweep, not a mechanical limit. Re-running with
+`--motor-id 5` rewrote that one joint and left the six good captures untouched, and it then agreed
+with Maker to 0.1%.
+
+A second tell: if a joint's captured max is below a position you have already seen it resting at,
+it never reached a stop.
+
+</Tip>
 
 ### 4. Capture the Star leader ranges and mapping
 
