@@ -19,6 +19,10 @@ from .config_rebot_102_leader_maker import (
     RebotArm102LeaderMakerConfig,
     RebotArm102LeaderMakerTeleopConfig,
 )
+from .config_rebot_102_leader_viscous import (
+    RebotArm102LeaderViscousConfig,
+    RebotArm102LeaderViscousTeleopConfig,
+)
 from .rebot_102_leader import RebotArm102Leader
 
 __all__ = [
@@ -27,4 +31,6 @@ __all__ = [
     "RebotArm102LeaderMakerConfig",
     "RebotArm102LeaderMakerTeleopConfig",
     "RebotArm102LeaderTeleopConfig",
+    "RebotArm102LeaderViscousConfig",
+    "RebotArm102LeaderViscousTeleopConfig",
 ]

@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 # RobStride model per joint, as named in `motors/robstride/tables.py` (MIT-protocol parameter
 # ranges). RS00 maps to "O0" (+-12.57 rad, +-33 rad/s, +-14 Nm) and RS02 to "O1" (+-44 rad/s,
 # +-17 Nm). Fixed by the hardware build: shoulder_lift and elbow_flex carry the RS02 motors.
+# Exposed as `MakerFollower.motor_models` so a same-topology arm with a different motor fit
+# (see `viscous_follower`, all RS00) only has to override that class attribute.
 MOTOR_MODELS = {
     "shoulder_pan": "O0",
     "shoulder_lift": "O1",
@@ -70,6 +72,10 @@ class MakerFollower(Robot):
 
     config_class = MakerFollowerConfig
     name = "maker_follower"
+    # RobStride model string per joint; overridden by same-topology arms with a different fit.
+    motor_models: dict[str, str] = MOTOR_MODELS
+    # Used in operator-facing calibration prompts.
+    display_name = "Maker"
 
     def __init__(self, config: MakerFollowerConfig):
         super().__init__(config)
@@ -77,7 +83,7 @@ class MakerFollower(Robot):
 
         if not config.port:
             raise ValueError(
-                "maker_follower requires `port`. With can_interface='slcan' (the default) it is "
+                f"{self.name} requires `port`. With can_interface='slcan' (the default) it is "
                 "the USB-CAN adapter's serial port, '/dev/ttyACM0' on Linux, "
                 "'/dev/cu.usbmodem1101' on macOS, 'COM5' on Windows. With "
                 "can_interface='socketcan' it is the interface name, e.g. 'can0'."
@@ -85,7 +91,7 @@ class MakerFollower(Robot):
 
         if config.can_interface not in ("socketcan", "slcan"):
             raise ValueError(
-                f"maker_follower supports can_interface='socketcan' or 'slcan', got "
+                f"{self.name} supports can_interface='socketcan' or 'slcan', got "
                 f"'{config.can_interface}'. On Linux, bring the USB-CAN adapter up as a socketcan "
                 "interface (`sudo slcand -o -f -s8 /dev/ttyACM0 can0 && sudo ip link set up can0`) "
                 "and set port='can0'. On macOS/Windows, where SocketCAN does not exist, use "
@@ -95,7 +101,7 @@ class MakerFollower(Robot):
         # RobStride MIT feedback carries the motor id in payload byte 0, so recv_id == id.
         motors: dict[str, Motor] = {}
         for motor_name, can_id in config.motor_can_ids.items():
-            motor_type_str = MOTOR_MODELS[motor_name]
+            motor_type_str = self.motor_models[motor_name]
             motor = Motor(can_id, motor_type_str, MotorNormMode.DEGREES)
             motor.recv_id = can_id
             motor.motor_type_str = motor_type_str
@@ -254,7 +260,7 @@ class MakerFollower(Robot):
         return bool(self.calibration)
 
     def calibrate(self) -> None:
-        """Interactive zero-pose calibration for the Maker follower arm.
+        """Interactive zero-pose calibration for the follower arm.
 
         No range-of-motion recording is needed. This procedure confirms the arm is in its zero
         pose and sets that reference on each motor, matching the reBot B601 and Metal followers.
@@ -272,7 +278,8 @@ class MakerFollower(Robot):
         self.bus.disable_torque()
         print(
             "\nCalibration: set zero position.\n"
-            "Manually move the Maker arm to its ZERO POSE: the folded resting pose it ships in,\n"
+            f"Manually move the {self.display_name} arm to its ZERO POSE: the folded resting pose it "
+            "ships in,\n"
             "arm tucked against the base, gripper fully open.\n"
             "The soft limits in `joint_limits` are measured from this pose.\n"
         )

@@ -84,6 +84,10 @@ def make_robot_from_config(config: RobotConfig) -> Robot:
         from .bi_maker_follower import BiMakerFollower
 
         return BiMakerFollower(config)
+    elif config.type == "viscous_follower":
+        from .viscous_follower import ViscousFollower
+
+        return ViscousFollower(config)
     elif config.type == "mock_robot":
         from tests.mocks.mock_robot import MockRobot
 
