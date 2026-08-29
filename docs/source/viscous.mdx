@@ -29,15 +29,15 @@ LeRobot has no replacement for any of them.
 
 Joint number, CAN id, and LeRobot joint name are one-to-one. There is no translation table.
 
-| J | Function | CAN id | LeRobot name | Viscous | Maker |
-| --- | --- | -----: | --- | --- | --- |
-| J1 | base yaw | 1 | `shoulder_pan` | RS00 | RS00 |
-| J2 | shoulder pitch | 2 | `shoulder_lift` | **RS00** | RS02 |
-| J3 | elbow pitch | 3 | `elbow_flex` | **RS00** | RS02 |
-| J4 | wrist pitch | 4 | `wrist_flex` | RS00 | RS00 |
-| J5 | wrist yaw | 5 | `wrist_yaw` | RS00 | RS00 |
-| J6 | wrist roll | 6 | `wrist_roll` | RS00 | RS00 |
-| J7 | gripper | 7 | `gripper` | RS00 | RS00 |
+| J   | Function       | CAN id | LeRobot name    | Viscous  | Maker |
+| --- | -------------- | -----: | --------------- | -------- | ----- |
+| J1  | base yaw       |      1 | `shoulder_pan`  | RS00     | RS00  |
+| J2  | shoulder pitch |      2 | `shoulder_lift` | **RS00** | RS02  |
+| J3  | elbow pitch    |      3 | `elbow_flex`    | **RS00** | RS02  |
+| J4  | wrist pitch    |      4 | `wrist_flex`    | RS00     | RS00  |
+| J5  | wrist yaw      |      5 | `wrist_yaw`     | RS00     | RS00  |
+| J6  | wrist roll     |      6 | `wrist_roll`    | RS00     | RS00  |
+| J7  | gripper        |      7 | `gripper`       | RS00     | RS00  |
 
 In `RobstrideMotorsBus` tables RS00 is model `O0`.
 
@@ -67,7 +67,7 @@ The SDK defaults to `--backend socketcan --channel can0`, which is Linux-only. O
 
 ### 1. Assign CAN ids 1–7
 
-Every motor ships as id `127`. Protocol Type 7 addresses a motor *by its current id*, so two
+Every motor ships as id `127`. Protocol Type 7 addresses a motor _by its current id_, so two
 motors still at 127 on one bus get reassigned together.
 
 The constraint is precisely: **only one motor still at 127 may be on the bus at a time.** Motors
@@ -161,15 +161,39 @@ it never reached a stop.
 ### 4. Capture the Star leader ranges and mapping
 
 ```bash
-./.venv/bin/python tools/engineering/calibration/capture_star_ranges.py
-./.venv/bin/python tools/engineering/calibration/calibrate_star_mapping.py
+./.venv/bin/python tools/engineering/calibration/capture_star_ranges.py \
+    --star-port /dev/cu.wchusbserial10 \
+    --out /path/to/star-ranges.json
 ```
 
-`calibrate_star_mapping.py` sweeps each Star joint stop to stop against the follower joint it
-drives, producing the `direction * scale` factors. Both arms must be present.
+Leave **both arms torque-free** — this reads the leader only and drives nothing, so a powered
+follower is just a hazard. Sweep every Star joint to both stops while it polls, then Enter writes
+the per-servo min/max/travel JSON; Ctrl-C discards.
+
+<Tip warning={true}>
+
+**Sanity-check the travel per servo before you trust the capture.** A joint you did not push all
+the way reports a short range and silently shrinks that joint's factor. Servos 0–6 on a
+known-good Star Arm 102 (Maker-era capture) read roughly 217, 200, 272, 197, 133, 320 and 59°.
+Anything well under its counterpart here is a partial sweep, not a mechanical limit — re-run the
+capture.
+
+</Tip>
+
+The mapping is then arithmetic, not another capture. For each joint:
+
+```
+factor = sign × (follower travel / Star travel)
+```
+
+Follower travel is `hi − lo` from the limits you captured in step 3; Star travel is `travel_deg`
+for the servo that drives that joint. The signs come from the Maker preset
+(`config_rebot_102_leader_maker.py`) — `+, −, −, −, −, +, −` in joint order — and carry over
+unless your arm is built mirrored. Write the seven results into the preset's `joint_directions` in
+`config_rebot_102_leader_viscous.py`.
 
 The leader preset **only scales and flips — it adds no offset.** The leader's zero must coincide
-with the follower's zero, so calibrate the Star folded to match *this* arm's reference pose.
+with the follower's zero, so calibrate the Star folded to match _this_ arm's reference pose.
 
 ### 5. Persist the motor-side CAN watchdog
 
@@ -216,7 +240,7 @@ change.
 
 **Verify the `O0` model mapping once.** The upstream O-series and RS-series numbering are
 suspected to be offset (`O2` is ±20 Nm/±33 rad/s, a different tier). On an all-RS00 arm this
-assumption covers *every* joint, so if it is wrong, all position and velocity scaling is wrong.
+assumption covers _every_ joint, so if it is wrong, all position and velocity scaling is wrong.
 Spin a joint at fixed speed with `tools/experimental/lerobot/mit_spin.py` and compare MIT
 `Present_Velocity` against the private-protocol reading; a 44/33x discrepancy means the wrong
 model was picked.
