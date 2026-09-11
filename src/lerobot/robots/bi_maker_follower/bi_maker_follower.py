@@ -64,6 +64,9 @@ class BiMakerFollower(BimanualMixin, Robot):
                 startup_sync_speed_deg=arm_config.startup_sync_speed_deg,
                 startup_sync_tolerance_deg=arm_config.startup_sync_tolerance_deg,
                 max_relative_target=arm_config.max_relative_target,
+                temp_warn_c=arm_config.temp_warn_c,
+                temp_critical_c=arm_config.temp_critical_c,
+                max_silent_cycles=arm_config.max_silent_cycles,
                 disable_torque_on_disconnect=arm_config.disable_torque_on_disconnect,
                 cameras=left_arm_cameras if side == "left" else arm_config.cameras,
             )
@@ -90,6 +93,14 @@ class BiMakerFollower(BimanualMixin, Robot):
         }
 
     @property
+    def _telemetry_ft(self) -> dict[str, type]:
+        """Per-arm `{motor}.temp` / `{motor}.torque`, see `MakerFollower._telemetry_ft`."""
+        return {
+            **{f"left_{key}": value for key, value in self.left_arm._telemetry_ft.items()},
+            **{f"right_{key}": value for key, value in self.right_arm._telemetry_ft.items()},
+        }
+
+    @property
     def _cameras_ft(self) -> dict[str, tuple]:
         features: dict[str, tuple] = {}
         for key, value in self.left_arm._cameras_ft.items():
@@ -100,7 +111,7 @@ class BiMakerFollower(BimanualMixin, Robot):
 
     @cached_property
     def observation_features(self) -> dict[str, type | tuple]:
-        return {**self._motors_ft, **self._cameras_ft}
+        return {**self._motors_ft, **self._telemetry_ft, **self._cameras_ft}
 
     @cached_property
     def action_features(self) -> dict[str, type]:

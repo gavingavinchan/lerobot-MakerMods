@@ -1,0 +1,337 @@
+# Teleoperating the Viscous Arm
+
+This page is for someone handed a **commissioned** Viscous Arm and a Star Arm 102 leader: it takes
+you from a fresh checkout to a running teleop session and back to a parked arm. Nothing here
+touches the arm's calibration.
+
+If the arm has never been brought up — CAN ids unassigned, motors still on the vendor's private
+protocol — start from [Viscous Arm](./viscous) instead. The examples use unit 1 (commissioned
+2026-08-28/29): follower id `viscous_01`, leader id `star_viscous`.
+
+## Install
+
+The Viscous types live on the `robot/viscous-arm` branch. From a checkout of that branch:
+
+```bash
+uv sync --extra maker --extra rebot
+```
+
+`maker` pulls RobStride/CAN, `rebot` pulls `motorbridge-smart-servo`, the FashionStar UART bus the
+Star leader speaks. The [Maker Arm SDK](https://github.com/makermods-robotics/maker-arm-sdk) is a
+bring-up tool only — it is not needed at runtime, and it cannot see the motors anyway once they are
+in MIT.
+
+## Identify the ports
+
+Two USB devices, and they are told apart by their driver, not by their number:
+
+| Device                      | macOS                   | Linux          |
+| --------------------------- | ----------------------- | -------------- |
+| CANable 2.0 Pro (follower)  | `/dev/cu.usbmodem*`     | `/dev/ttyACM*` |
+| Star Arm 102 leader (CH340) | `/dev/cu.wchusbserial*` | `/dev/ttyUSB*` |
+
+The CANable is a native CDC-ACM device (`usbmodem`); the Star goes through a CH340 UART bridge
+(`wchusbserial`). Confirm with `lerobot-find-port`, which asks you to unplug the device and names
+the port that disappeared.
+
+On unit 1's Mac the two came up as `/dev/cu.usbmodem2050389538461` and `/dev/cu.wchusbserial10`.
+**These are examples**: the suffixes are per-machine and change with the USB port, so read yours
+before every session rather than copying them.
+
+## Find the calibration ids
+
+Both arms load their calibration by `id`. List what this machine already has:
+
+```bash
+ls ~/.cache/huggingface/lerobot/calibration/robots/viscous_follower/
+ls ~/.cache/huggingface/lerobot/calibration/teleoperators/rebot_102_leader/
+```
+
+The teleoperator folder is named after the **class**, not the preset, so every
+`rebot_102_leader*` preset — stock, Maker, Viscous — shares that one directory.
+
+Unit 1's files are `viscous_01.json` and `star_viscous.json`, so its ids are `viscous_01` and
+`star_viscous`.
+
+Both files are also committed under [`examples/calibration/`](https://github.com/makermods-robotics/lerobot/tree/robot/viscous-arm/examples/calibration)
+in the same layout as the cache. On a fresh machine, or after the cache is wiped, restore them
+with:
+
+```bash
+cp -Rn examples/calibration/. ~/.cache/huggingface/lerobot/calibration/
+```
+
+<Tip warning={true}>
+
+**An id with no calibration file is not an error — it starts an interactive calibration.** For the
+follower that calibration re-zeros every motor at whatever pose the arm is standing in, which
+destroys the arm's zero: the captured `joint_limits` and the leader's mapping factors are both
+measured from the commissioning reference pose, and nothing recovers them afterwards. A typo in
+`--robot.id` is enough to trigger it.
+
+**Never run `lerobot-calibrate` for the follower on a commissioned arm.** If the calibration files
+are missing, get them from whoever commissioned it.
+
+</Tip>
+
+The leader may be recalibrated if it needs it. Fold the Star to match the follower's reference
+pose joint for joint, **gripper closed** for unit 1, and ignore the prompt's "close the
+gripper"/"open" wording — the pose to match is the follower's recorded reference pose, not the
+prompt's:
+
+```bash
+lerobot-calibrate \
+    --teleop.type=rebot_102_leader_viscous \
+    --teleop.port=/dev/cu.wchusbserial10 \
+    --teleop.id=star_viscous
+```
+
+## Before you start
+
+Fold the Star to its zero pose and keep hands, cables and bystanders clear of the follower.
+
+**On connect the follower moves to the leader's pose.** It ramps there — capped at
+`startup_sync_speed_deg` per step until each joint is within `startup_sync_tolerance_deg` — then
+switches to full-speed tracking. A leader left in an extended pose means the follower travels
+there as its first motion of the session.
+
+## Run the teleop loop
+
+```bash
+uv run lerobot-teleoperate \
+    --robot.type=viscous_follower \
+    --robot.port=/dev/cu.usbmodem2050389538461 \
+    --robot.id=viscous_01 \
+    --teleop.type=rebot_102_leader_viscous \
+    --teleop.port=/dev/cu.wchusbserial10 \
+    --teleop.id=star_viscous
+```
+
+Reading the startup log:
+
+- `... reads +336.5 deg, a full turn outside its limits ...; correcting by -360 deg for this
+session.` — benign. RobStride multi-turn counts reset on a power cycle; the follower folds the
+  extra turn out for the session.
+- `... startup sync stalled on shoulder_lift (...); releasing it to full speed.` — expected on this
+  arm. `shoulder_lift` and `elbow_flex` run the soft placeholder gains (kp 30), which do not lift
+  the arm against gravity, so the joint stops making progress and the follower hands it to
+  full-speed tracking instead of waiting forever.
+- `... synced to leader; tracking at full speed.` — the arm is following. Go.
+- `Teleop loop time: 16.67ms (60 Hz)`, printed every tick and steady — the loop is keeping up.
+
+## Lock button (Star Arm 102-HD only)
+
+The purple **102-HD** leader can hold its own pose: one press of its button holds every joint
+where it stands, the next press lets go. Off by default, because the green 102-LD has no button
+board and nothing on the bus to talk to. Turn it on with `--teleop.button.enabled=true`:
+
+```bash
+uv run lerobot-teleoperate \
+    --robot.type=viscous_follower \
+    --robot.port=/dev/cu.usbmodem2050389538461 \
+    --robot.id=viscous_01 \
+    --teleop.type=rebot_102_leader_viscous \
+    --teleop.port=/dev/cu.wchusbserial10 \
+    --teleop.id=star_viscous \
+    --teleop.button.enabled=true
+```
+
+Connect fails with `Lock button not found at id=7` if the board does not answer, rather than
+running with a dead button. The other flags, all optional:
+
+| Flag                                    | Default   | What it does                                                                                                                                                         |
+| --------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--teleop.button.id`                    | `7`       | Bus id of the button board.                                                                                                                                          |
+| `--teleop.button.trigger_threshold`     | `135`     | Degrees at or above which the button reads "locked". The board reports 0 free, 180 lock requested and 90 unlock requested, so the threshold sits between 90 and 180. |
+| `--teleop.button.freeze_action_on_lock` | `true`    | While locked, keep sending the last action from before the lock, so the follower freezes with the leader.                                                            |
+| `--teleop.button.lock_on_connect`       | `false`   | Lock immediately after connect.                                                                                                                                      |
+| `--teleop.button.excluded_lock_joints`  | `[]`      | Joints left free while the rest hold, e.g. `[gripper]` to keep using the gripper as a trigger.                                                                       |
+| `--teleop.button.hold_power_mw`         | `0`       | Power cap on the hold; 0 is the servo firmware default.                                                                                                              |
+| `--teleop.button.release_mode`          | `release` | `release` is torque off; `damping` leaves the joints free but resisting.                                                                                             |
+| `--teleop.button.damping_power_mw`      | `900`     | Power cap for `release_mode=damping`.                                                                                                                                |
+
+<Tip warning={true}>
+
+**Locking the leader is not parking the follower.** The follower keeps holding the frozen target
+under full torque — it is a "put the leader down for a minute" control, not a way to end a
+session. The rest rules below are unchanged: bring the arm to its folded pose with the leader,
+then Ctrl-C.
+
+</Tip>
+
+The leader always releases every joint on disconnect, whatever the lock state and whatever
+`release_mode` says, so a Ctrl-C never leaves the leader stiff. If the button board falls silent
+mid-session the lock state is held and a rate-limited warning is logged; after 20 consecutive
+silent reads the button is ignored for the rest of the session, because polling an id that does
+not answer costs a full bus timeout every cycle and would break the 60 Hz loop on its own.
+
+### Trying it without a follower
+
+`examples/rebot_102/star_hd_lock_toggle.py` drives the same lock on the leader alone and prints
+the per-joint current, which is the only evidence the arm gives that it is holding:
+
+```bash
+# the arm's own button, on the bus at id 7
+uv run python examples/rebot_102/star_hd_lock_toggle.py \
+    --port=/dev/cu.wchusbserial10 --id=star_viscous --button-source=bus --button-id=7
+
+# no button hardware needed: SPACE (or 'l') in this terminal toggles the lock
+uv run python examples/rebot_102/star_hd_lock_toggle.py \
+    --port=/dev/cu.wchusbserial10 --id=star_viscous --button-source=keyboard
+```
+
+Ctrl-C releases and disconnects. Neither mode commands a position, so the script cannot move the
+arm; it never touches calibration.
+
+## Ending a session
+
+**The arm has no brakes.** Every way a session ends — Ctrl-C, an exception, an unplugged USB
+cable, cut motor power — releases torque, and a torque-free arm drops under gravity from wherever
+it is.
+
+So the rule is: **bring the arm to its rest (folded) pose with the leader first, then Ctrl-C.**
+
+- **Never use `--teleop_time_s`.** It ends the session on a timer, in whatever pose the arm
+  happens to be holding.
+- **Never unplug USB or cut power mid-session.** Same failure, with no warning at all.
+- The motor-side CAN watchdog (200 ms) drops torque on its own if the host stalls, so a frozen
+  laptop drops the arm too. Park it before you walk away from it.
+
+## Thermal duty
+
+<Tip warning={true}>
+
+**The bench is not this arm's design duty.** The Viscous Arm is meant to run neutrally buoyant
+underwater, where the gravity load largely disappears. On a dry bench the RS00 motors at
+`shoulder_lift` and `elbow_flex` hold the whole arm up on holding current, which is exactly the
+job an RS00 is worst at. On 2026-08-29 about 16 minutes of bench teleop in a raised pose ran the
+motors hot enough to trip the supply: all seven went silent at once, mid-session, and the motors
+were too hot to hold comfortably.
+
+</Tip>
+
+Keep raised-pose bench sessions short, and rest the arm folded in its zero pose between them so
+the load comes off J2 and J3. Underwater this constraint mostly goes away.
+
+The follower watches the temperature every motor reports:
+
+- Every joint's winding temperature appears in the observation as `{motor}.temp`, in degrees
+  Celsius, alongside `{motor}.torque` in Nm. Both are decoded from the same MIT feedback frame as
+  the position, so they cost no extra CAN traffic.
+- Once every 30 s the log carries one INFO line with all seven temperatures and the hottest joint,
+  so a session log holds a thermal trace.
+- Above `temp_warn_c` (60 °C) a joint logs a WARNING naming itself and its temperature, at most
+  once per joint per 10 s.
+- Above `temp_critical_c` (75 °C) that becomes an ERROR-level line every 2 s until the arm is
+  parked.
+
+**When the warning appears, bring the arm to its rest pose, then end the session yourself.** The
+follower never stops a session on temperature: every way a session ends releases torque, and the
+arm has no brakes, so a stop triggered mid-motion drops it. The 15 °C between the two thresholds is
+the window to park the arm while it is still under control.
+
+Both defaults sit far below the motor's own protection: the RS00 firmware warns at 135 °C and
+faults its thermistor at 145 °C, the winding limit. By the time the motor protects itself the arm
+has been cooking for a long time and will drop when it cuts out. Raise or lower the thresholds
+per arm with `--robot.temp_warn_c` and `--robot.temp_critical_c`.
+
+The follower also watches for motors that stop answering. A single joint with no CAN feedback for
+`max_silent_cycles` consecutive read cycles (30, half a second at 60 Hz) logs a warning and keeps
+serving its last known position — the other joints are still holding, and ending the session would
+drop them. Only when _every_ joint is silent, which is what a tripped supply, a power cut or a dead
+adapter look like, does `get_observation` raise and end the loop: nothing is holding the arm any
+more. Before this, a supply trip left `lerobot-teleoperate` spinning at full rate for 24 minutes on
+nothing but per-loop "no response received from motor" warnings.
+
+<Tip warning={true}>
+
+`{motor}.temp` and `{motor}.torque` are new observation features, so they widen
+`observation.state` from 7 values to 21 (position, then temperature, then torque, per joint).
+Datasets recorded before this change have the old 7-value schema and cannot be mixed with new
+recordings without remapping, and a policy trained on one will not load against the other.
+
+</Tip>
+
+## Gains
+
+`shoulder_lift` and `elbow_flex` ship with **untuned placeholders** (kp 30, kd 2) chosen so the
+failure mode is sag rather than a slam. Soft tracking and the startup-sync stall on those two
+joints both come from there. Tuning procedure — and why Maker's kp 150 / 90 must not be copied onto
+these RS00 motors — is in [Tuning gains](./viscous#tuning-gains) on the bring-up page.
+
+`gains` is a `dict[str, tuple[float, float]]`, and draccus parses a dict field **as a whole
+value**: there is no `--robot.gains.shoulder_lift=...` form, and a partial dict replaces the
+default rather than merging into it, leaving the joints you left out on the bus default kp of 10.
+So pass all seven:
+
+```bash
+uv run lerobot-teleoperate \
+    --robot.type=viscous_follower \
+    --robot.port=/dev/cu.usbmodem2050389538461 \
+    --robot.id=viscous_01 \
+    --robot.gains='{"shoulder_pan":[60,4],"shoulder_lift":[40,2.3],"elbow_flex":[40,2.3],"wrist_flex":[30,2],"wrist_yaw":[30,2],"wrist_roll":[30,2],"gripper":[20,0.5]}' \
+    --teleop.type=rebot_102_leader_viscous \
+    --teleop.port=/dev/cu.wchusbserial10 \
+    --teleop.id=star_viscous
+```
+
+The same thing from Python, which is easier to keep in a file while walking values up:
+
+```python
+from lerobot.robots.viscous_follower import ViscousFollower, ViscousFollowerConfig
+
+config = ViscousFollowerConfig(
+    port="/dev/cu.usbmodem2050389538461",
+    id="viscous_01",
+)
+config.gains["shoulder_lift"] = (40.0, 2.3)
+follower = ViscousFollower(config)
+```
+
+Settled values belong in `config_viscous_follower.py`, not in a shell history.
+
+## Record and replay
+
+`lerobot-record` works exactly as on the generic pages ([Imitation learning with real
+robots](./il_robots)), with `--robot.type=viscous_follower --robot.id=viscous_01` and
+`--teleop.type=rebot_102_leader_viscous --teleop.id=star_viscous` in place of the SO-101 types.
+
+`lerobot-replay` takes the same two robot flags and no teleoperator, and it drives the arm on its
+own — the rest rules in [Ending a session](#ending-a-session) apply unchanged, including the pose
+the arm is left in when the episode ends.
+
+## Troubleshooting
+
+**Handshake fails with `did not respond` on every motor.** The arm is unpowered, the CANable is on
+the wrong port or unplugged, or — if anyone has run the Maker Arm SDK against it — the motors were
+switched back to the private protocol and need switching to MIT again.
+
+**`maker-arm scan` finds nothing.** Expected. The motors are in MIT and the SDK speaks only the
+private protocol. Verify from the LeRobot side instead.
+
+**A joint reads a whole turn off.** Benign, and the follower says so: multi-turn counts reset on a
+power cycle and it applies a ±360° correction for the session.
+
+**The arm refuses to move, logging a stale zero.** A joint reads outside its soft limits by more
+than a whole turn can explain, so the motor zero no longer matches the calibration pose — the arm
+was zeroed somewhere else. **Stop and contact whoever commissioned the arm.** Do not run
+`lerobot-calibrate` to clear it: that writes a new wrong zero over the one piece of evidence left.
+
+**Gripper travel saturates.** Check `joint_limits` before suspecting gains or a flipped direction —
+soft limits saturate long before the mechanism does.
+
+**Gripper does not follow the leader at all, and startup sync stalls on `gripper`.** The follower's
+closed stop is not where the calibration zero says it is. On unit 1 (2026-09-10) the gripper read
+-33° folded with torque off, so every target between -3° and -33° only pressed into the stop and
+the leader had to open ~17° before anything moved. The Viscous leader preset carries a
+`joint_offsets={"gripper": -33.0}` for this; `examples/viscous/gripper_diag.py` measures the stop
+(read-only snapshot, and with `--actuate` a gripper-only step test) if it moves again. A slipped
+gripper coupling is the usual reason it moves.
+
+**One joint goes limp mid-session while the rest hold.** The motor-side CAN watchdog dropped that
+motor's torque, usually from a marginal connector or a bus stall on that branch of the daisy chain.
+Park the arm, end the session, and check the wiring to that joint.
+
+---
+
+Bring-up, joint map and gain tuning: [Viscous Arm](./viscous).

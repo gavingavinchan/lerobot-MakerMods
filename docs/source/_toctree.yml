@@ -169,6 +169,8 @@
     title: Maker Arm
   - local: viscous
     title: Viscous Arm
+  - local: viscous_teleop
+    title: Viscous Arm Teleoperation
   - local: third_party_robots
     title: Third-Party Robots & Teleoperators
   title: "Robots"

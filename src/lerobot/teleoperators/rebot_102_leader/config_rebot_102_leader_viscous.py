@@ -76,6 +76,14 @@ class RebotArm102LeaderViscousConfig(RebotArm102LeaderConfig):
     # borrowed from the wrong follower can land a joint on the wrong 360 deg branch.
     joint_ranges: dict[str, list[int]] = field(default_factory=_viscous_joint_ranges)
 
+    # The follower gripper's closed stop is not at the calibration zero: measured 2026-09-10 on
+    # unit 1, folded with torque off, the gripper reads -33 deg (`examples/viscous/gripper_diag.py` snapshot),
+    # and a target between there and the -2.8 soft limit only presses into the stop. The leader
+    # gripper reads ~0 raw when closed, so this offset lands "closed" on the real stop and every
+    # squeeze opens the gripper immediately instead of first crossing a 30 deg dead band. If the
+    # gripper is re-zeroed at commissioning, re-measure and update this.
+    joint_offsets: dict[str, float] = field(default_factory=lambda: {"gripper": -33.0})
+
 
 @TeleoperatorConfig.register_subclass("rebot_102_leader_viscous")
 @dataclass

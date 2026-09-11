@@ -103,3 +103,35 @@ def test_registered_type_resolves():
         robot = make_robot_from_config(ViscousFollowerConfig(port="/dev/fake"))
     assert isinstance(robot, ViscousFollower)
     assert robot.name == "viscous_follower"
+
+
+def test_the_thermal_guard_is_inherited(follower):
+    """RS00 on J2/J3 fighting gravity on a dry bench is what cooked this arm on 2026-08-29."""
+    cfg = follower.config
+    assert (cfg.temp_warn_c, cfg.temp_critical_c) == (60.0, 75.0)
+    # Well under the RS00's own protection: firmware warns at 135 C and faults at 145 C.
+    assert cfg.temp_critical_c < 135.0
+
+    assert "shoulder_lift.temp" in follower.observation_features
+
+    temperatures = {**dict.fromkeys(JOINTS, 30.0), "shoulder_lift": 78.0}
+    follower.bus.read.side_effect = lambda data_name, motor: (
+        temperatures[motor] if data_name == "Temperature_MOS" else 0.0
+    )
+    obs = follower.get_observation()
+    assert obs["shoulder_lift.temp"] == 78.0
+    # Over the critical limit the follower shouts but keeps driving: stopping on its own would
+    # release torque and drop the arm.
+    follower.send_action({"shoulder_lift.pos": -90.0})
+    follower.bus.disable_torque.assert_not_called()
+
+
+def test_a_dead_bus_ends_the_session(follower):
+    """The 2026-08-29 cutout left `lerobot-teleoperate` spinning for 24 minutes on warnings."""
+    follower.config.max_silent_cycles = 4
+    follower.get_observation()
+    follower.bus.read.side_effect = ConnectionError("No response received from motor")
+    for _ in range(3):
+        follower.get_observation()
+    with pytest.raises(RuntimeError, match="check arm power / CAN adapter"):
+        follower.get_observation()

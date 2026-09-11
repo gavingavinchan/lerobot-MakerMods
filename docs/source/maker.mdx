@@ -226,6 +226,40 @@ follower.disconnect()
 Positions returned by `get_observation()` are in degrees. Actions passed to `send_action()` use
 the same seven names with a `.pos` suffix.
 
+### Thermal duty
+
+Each observation also carries `{motor}.temp`, the joint's winding temperature in degrees Celsius,
+and `{motor}.torque` in Nm. Both are decoded from the same MIT feedback frame as the position, so
+they cost no extra CAN traffic.
+
+The follower warns at `temp_warn_c` (60 °C, at most once per joint per 10 s), logs every joint's
+temperature at INFO every 30 s, and escalates to an ERROR line every 2 s over `temp_critical_c`
+(75 °C). Both sit far below the motors' own protection — the RS00 firmware warns at 135 °C and
+faults at 145 °C, the winding limit — because the arm has no brakes and drops when a motor cuts
+out. It never stops the session itself: ending a session releases torque, and a stop triggered
+mid-motion drops the arm. **When the warning appears, bring the arm to its rest pose, then end
+the session yourself.**
+
+Holding a raised pose against gravity is what heats these motors. Rest the arm folded between
+runs. The [Viscous Arm](./viscous.mdx), which carries RS00 motors at `shoulder_lift` and
+`elbow_flex` where Maker has RS02, tripped its supply after 16 minutes of raised-pose bench teleop
+on 2026-08-29; see its [thermal duty](./viscous_teleop.mdx#thermal-duty) note.
+
+The follower also watches for silent motors. A single joint with no CAN feedback for
+`max_silent_cycles` consecutive read cycles (30, half a second at 60 Hz) logs a warning and keeps
+its last known position, since the other joints are still holding. Only when every joint is
+silent — a tripped supply or a dead adapter — does `get_observation()` raise, instead of running
+on forever against a dead bus.
+
+<Tip warning={true}>
+
+`{motor}.temp` and `{motor}.torque` are observation features, so `observation.state` holds 21
+values per arm (position, then temperature, then torque, per joint), not 7. Datasets recorded
+before these features were added use the old schema and cannot be mixed with new recordings
+without remapping.
+
+</Tip>
+
 ### Teleoperation with a Star Arm 102 leader
 
 Use a [Seeed Studio Star Arm 102 or reBot Arm 102](./rebot_b601) leader. Its FashionStar servos
@@ -402,19 +436,22 @@ there. That is untested, and one millisecond per joint is not worth two code pat
 
 ### Follower (`maker_follower`)
 
-| Parameter                      | Default         | Description                                                                      |
-| ------------------------------ | --------------- | -------------------------------------------------------------------------------- |
-| `port`                         | `None`          | Required serial port for `slcan`, or interface name for `socketcan`              |
-| `can_interface`                | `"slcan"`       | `"slcan"` or `"socketcan"`                                                       |
-| `can_bitrate`                  | `1000000`       | Classic CAN bitrate in bits per second                                           |
-| `motor_can_ids`                | ids 1 through 7 | Per-joint motor CAN ids                                                          |
-| `joint_limits`                 | per joint       | Soft limits in degrees, applied to every action                                  |
-| `gains`                        | per joint       | MIT follow gains stored as `(kp, kd)`                                            |
-| `startup_sync_speed_deg`       | `1.0`           | Maximum degrees per step during initial pose synchronization. `None` disables it |
-| `startup_sync_tolerance_deg`   | `3.0`           | Error in degrees at which a joint finishes initial synchronization               |
-| `max_relative_target`          | `None`          | Per-step motion cap in degrees. Accepts a float or per-joint dictionary          |
-| `disable_torque_on_disconnect` | `True`          | Sends stop frames before closing the CAN bus                                     |
-| `cameras`                      | `{}`            | Camera configurations keyed by camera name                                       |
+| Parameter                      | Default         | Description                                                                                 |
+| ------------------------------ | --------------- | ------------------------------------------------------------------------------------------- |
+| `port`                         | `None`          | Required serial port for `slcan`, or interface name for `socketcan`                         |
+| `can_interface`                | `"slcan"`       | `"slcan"` or `"socketcan"`                                                                  |
+| `can_bitrate`                  | `1000000`       | Classic CAN bitrate in bits per second                                                      |
+| `motor_can_ids`                | ids 1 through 7 | Per-joint motor CAN ids                                                                     |
+| `joint_limits`                 | per joint       | Soft limits in degrees, applied to every action                                             |
+| `gains`                        | per joint       | MIT follow gains stored as `(kp, kd)`                                                       |
+| `startup_sync_speed_deg`       | `1.0`           | Maximum degrees per step during initial pose synchronization. `None` disables it            |
+| `startup_sync_tolerance_deg`   | `3.0`           | Error in degrees at which a joint finishes initial synchronization                          |
+| `max_relative_target`          | `None`          | Per-step motion cap in degrees. Accepts a float or per-joint dictionary                     |
+| `temp_warn_c`                  | `60.0`          | Winding temperature in °C at which a joint logs a warning                                   |
+| `temp_critical_c`              | `75.0`          | Winding temperature in °C above which the warning escalates to an ERROR every 2 s           |
+| `max_silent_cycles`            | `30`            | Read cycles without CAN feedback before a joint warns (all silent: raises). `0` disables it |
+| `disable_torque_on_disconnect` | `True`          | Sends stop frames before closing the CAN bus                                                |
+| `cameras`                      | `{}`            | Camera configurations keyed by camera name                                                  |
 
 At startup, each joint approaches the leader pose by at most `startup_sync_speed_deg` per step.
 It switches to normal tracking inside `startup_sync_tolerance_deg`. A joint that stops making

@@ -9,10 +9,19 @@ difference is the motors: Maker carries RS02 at `shoulder_lift` and `elbow_flex`
 duty cycle; the Viscous Arm is all-RS00 because it runs neutrally buoyant underwater, where the
 gravity load those two joints fight on a bench largely disappears.
 
+<Tip>
+
+**Arm already brought up?** Nothing on this page applies to it. Go to
+[Teleoperating the Viscous Arm](./viscous_teleop).
+
+</Tip>
+
 ## Bring-up
 
-Everything below is a **one-time procedure for a newly assembled arm**. Skip to
-[Usage](#usage) on an arm that has already been through it.
+Everything below is a **one-time procedure for a newly assembled arm**, run once by whoever
+commissions it. On an arm that has already been through it, every step here is destructive:
+re-zeroing, re-capturing limits or re-calibrating throws away the reference the arm was
+commissioned against.
 
 <Tip warning={true}>
 
@@ -103,10 +112,22 @@ step 2.
 
 ### 2. Set the mechanical zero
 
-**Define and photograph the reference pose before this step.** Every limit captured in step 3 and
-every leader factor in step 4 is expressed against it. If it cannot be reproduced after a
-teardown, steps 3 and 4 must be re-run. Use a repeatable folded resting pose with the gripper
-fully open.
+**Define and record the reference pose before this step.** Every limit captured in step 3, every
+leader factor in step 4 and every calibration afterwards is expressed against it. Pick a
+repeatable folded resting pose, then record it: a photo of the arm, plus a written note of the
+**gripper state** — open or closed — because the gripper is the joint nothing else in the pose
+pins down. If the pose cannot be reproduced after a teardown, steps 3 and 4 must be re-run.
+
+<Tip warning={true}>
+
+**The gripper state is a per-arm fact, not a convention.** The first Viscous Arm (unit 1, brought
+up 2026-08-28/29) was zeroed **folded, gripper CLOSED**. The follower's own `lerobot-calibrate`
+prompt reads "gripper fully open" — that wording is inherited from the Maker Arm and is wrong for
+this arm. Following it would zero the gripper roughly 120° away from where the captured
+`joint_limits` are measured from. Whatever you choose, write it down next to the photo, and hand
+it over with the arm.
+
+</Tip>
 
 With the arm torque-free and the joint held at the reference pose:
 
@@ -249,32 +270,47 @@ model was picked.
 
 ## Calibration
 
-Once the arm is in MIT, `lerobot-calibrate` records each motor id and its soft limits against the
-zero set in bring-up step 2:
+**Run the follower calibration once, immediately after the protocol switch, with the arm still
+standing in the reference pose it was zeroed in.** In that pose the command is harmless: it
+re-sends a set-zero to motors that are already zeroed there, and its real job is writing the
+calibration file (motor ids and soft limits) that every later session loads.
 
 ```bash
 lerobot-calibrate \
     --robot.type=viscous_follower \
     --robot.port=/dev/cu.usbmodem1101 \
     --robot.id=my_viscous_follower
+```
 
+The prompt asks for the folded resting pose "gripper fully open". Ignore the gripper wording and
+use **this arm's recorded reference pose** — for unit 1 that is folded with the gripper **closed**
+(see step 2).
+
+<Tip warning={true}>
+
+**Never run `lerobot-calibrate` on this follower again.** It re-zeros every motor wherever the arm
+happens to be standing, which silently invalidates the captured `joint_limits`, the leader
+factors, and every dataset recorded against them. There is no confirmation that catches a wrong
+pose. If a calibration file is lost, copy it back from a backup rather than re-running the
+command.
+
+</Tip>
+
+Then calibrate the Star leader that will drive this arm, folded to match the follower's reference
+pose joint for joint — same gripper state, closed for unit 1:
+
+```bash
 lerobot-calibrate \
     --teleop.type=rebot_102_leader_viscous \
     --teleop.port=/dev/cu.usbserial-0001 \
     --teleop.id=star_viscous
 ```
 
-Use a distinct `id` per physical arm and leader so their calibration files do not collide.
+The leader preset only scales and flips each joint, it adds no offset, so the leader's zero must
+coincide with the follower's. The leader is safe to recalibrate later; the follower is not.
 
-## Usage
-
-Same entry points as the Maker Arm — `lerobot-teleoperate`, `lerobot-record`, `lerobot-replay`,
-`lerobot-rollout` — with `--robot.type=viscous_follower` and
-`--teleop.type=rebot_102_leader_viscous`. See [Maker Arm](./maker.mdx) for the full command forms;
-only the type names differ.
-
-Torque-off is the documented safe state and the arm has no brakes, so a torque-off arm settles
-under gravity. Support it before disconnecting.
+Use a distinct `id` per physical arm and leader so their calibration files do not collide, and
+record the two ids with the arm — the teleop page starts from them.
 
 ## Tuning gains
 
@@ -296,6 +332,10 @@ Finish with a **60-second hold test**: keep the leader still with the follower u
 joint that releases torque or drops out is the step-5 watchdog misbehaving in MIT mode, not a gain
 problem.
 
+Tune in short bursts and rest the arm folded between them: on a dry bench J2 and J3 heat fast. See
+[thermal duty](./viscous_teleop#thermal-duty) for the temperature limits and what the follower
+logs.
+
 ## Troubleshooting
 
 **Gripper travel saturates.** Looks exactly like a wrong direction or a bad gain. Check the
@@ -312,3 +352,9 @@ at a time for this reason: about 1 ms per joint, 9.6 ms of a 33 ms period at 30 
 
 **Motors do not respond at all after step 6.** They are in MIT and the SDK cannot see them — that
 is expected. Verify from the LeRobot side, not with `maker-arm scan`.
+
+## Next: teleoperation
+
+Bring-up ends here. Everything about driving the arm — ports, calibration ids, the teleop command,
+how to end a session without dropping the arm, and thermal duty — is on
+[Teleoperating the Viscous Arm](./viscous_teleop).

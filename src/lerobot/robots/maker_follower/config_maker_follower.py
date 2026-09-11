@@ -103,6 +103,33 @@ class MakerFollowerConfigBase:
     # Safety limit for relative target positions (degrees). None disables the check.
     max_relative_target: float | dict[str, float] | None = None
 
+    # Thermal limits in degrees Celsius, checked against the winding temperature every motor
+    # reports in its own MIT feedback frame (see `MakerFollower._read_raw_positions`).
+    #
+    # These are operator limits, not the motor's protection. RobStride's own protection sits far
+    # higher: the RS00 manual puts the firmware over-temperature *warning* at 135 C and the
+    # thermistor fault at 145 C, which is also the winding limit temperature. A motor that gets
+    # there has been cooking for a long time, and the arm has no brakes, so waiting for the
+    # firmware to act means the arm drops when it finally does. 60 / 75 C leaves the operator
+    # time to park the arm; it is in the same territory as the maker-arm SDK's teleop CLI, which
+    # aborts at `--max-temperature 70` by default.
+    #
+    # Both thresholds only log — a WARNING every 10 s over `temp_warn_c`, an ERROR every 2 s over
+    # `temp_critical_c`. The follower never ends a session on temperature: ending a session
+    # releases torque, and a stop triggered mid-motion drops the arm. Parking it and stopping is
+    # the operator's call.
+    temp_warn_c: float = 60.0
+    temp_critical_c: float = 75.0
+
+    # How many consecutive read cycles a motor may return no CAN feedback before the follower
+    # reacts. 30 cycles is half a second at 60 Hz. A single silent joint only logs a warning and
+    # keeps serving its last known position (the others are still holding; ending the session
+    # would drop them). When every joint is silent `get_observation` raises: a PSU thermal trip
+    # or an unplugged adapter otherwise leaves the control loop spinning forever on last-known
+    # values while the bus logs one "no response" warning per motor per tick. 0 or less disables
+    # the check.
+    max_silent_cycles: int = 30
+
     # Torque-off is the vendor's documented safe state and the arm has no brakes, so a torque-off
     # arm settles under gravity: support it before disconnecting.
     disable_torque_on_disconnect: bool = True

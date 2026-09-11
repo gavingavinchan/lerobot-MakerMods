@@ -14,7 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .config_rebot_102_leader import RebotArm102LeaderConfig, RebotArm102LeaderTeleopConfig
+from .config_rebot_102_leader import (
+    RebotArm102LeaderButtonConfig,
+    RebotArm102LeaderConfig,
+    RebotArm102LeaderTeleopConfig,
+)
 from .config_rebot_102_leader_maker import (
     RebotArm102LeaderMakerConfig,
     RebotArm102LeaderMakerTeleopConfig,
@@ -27,6 +31,7 @@ from .rebot_102_leader import RebotArm102Leader
 
 __all__ = [
     "RebotArm102Leader",
+    "RebotArm102LeaderButtonConfig",
     "RebotArm102LeaderConfig",
     "RebotArm102LeaderMakerConfig",
     "RebotArm102LeaderMakerTeleopConfig",

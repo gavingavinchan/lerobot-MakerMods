@@ -410,6 +410,7 @@ Single-task grasp-and-place with 50 clean episodes: ACT should reach **> 70% suc
 ## 9. Further reading & resources
 
 - **Getting started:** [`installation.mdx`](./docs/source/installation.mdx) · [`il_robots.mdx`](./docs/source/il_robots.mdx) · [What makes a good dataset](https://huggingface.co/blog/lerobot-datasets)
+- **Maker / Viscous arms:** [`maker.mdx`](./docs/source/maker.mdx) · [`viscous.mdx`](./docs/source/viscous.mdx) (bring-up) · [`viscous_teleop.mdx`](./docs/source/viscous_teleop.mdx) (teleop on a commissioned arm)
 - **Per-policy docs:** browse [`docs/source/*.mdx`](./docs/source/) (policies, hardware, benchmarks, advanced training).
 - **Community:** [Discord](https://discord.com/invite/s3KuuzsPFb) · [Hub `LeRobot` tag](https://huggingface.co/datasets?other=LeRobot) · [Dataset visualizer](https://huggingface.co/spaces/lerobot/visualize_dataset)
 

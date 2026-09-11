@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,9 +29,24 @@ from lerobot.robots.utils import make_robot_from_config
 JOINTS = list(MakerFollowerConfig(port="x").motor_can_ids)
 
 
-def set_positions(bus, positions):
-    """Script the per-motor `bus.read("Present_Position", motor)` the follower uses."""
-    bus.read.side_effect = lambda _data_name, motor: positions[motor]
+def set_positions(bus, positions, temperatures=None, torques=None):
+    """Script the per-motor reads the follower makes each cycle.
+
+    One MIT feedback frame carries position, winding temperature and torque together, so the
+    follower asks the bus for all three per motor and the bus serves them from one cached decode.
+    The mock answers each by name.
+    """
+    temps = dict.fromkeys(positions, 25.0) if temperatures is None else temperatures
+    taus = dict.fromkeys(positions, 0.0) if torques is None else torques
+
+    def _read(data_name, motor):
+        if data_name == "Temperature_MOS":
+            return temps[motor]
+        if data_name == "Present_Torque":
+            return taus[motor]
+        return positions[motor]
+
+    bus.read.side_effect = _read
 
 
 def goal_writes(bus):
@@ -85,7 +101,13 @@ def test_bus_is_built_for_classic_can_with_the_right_models():
 
 def test_features(follower):
     assert follower.action_features == {f"{j}.pos": float for j in JOINTS}
-    assert follower.observation_features == follower.action_features
+    # Temperature and torque ride along in the position feedback frame, so they are observed but
+    # never commanded.
+    assert follower.observation_features == {
+        **{f"{j}.pos": float for j in JOINTS},
+        **{f"{j}.temp": float for j in JOINTS},
+        **{f"{j}.torque": float for j in JOINTS},
+    }
 
 
 def test_defaults():
@@ -257,3 +279,169 @@ def test_a_missed_reply_keeps_the_previous_position(follower):
     positions = follower._read_raw_positions()
     assert positions["wrist_roll"] == 4.0
     assert positions["wrist_yaw"] == 9.0
+
+
+# --- thermal and bus-health monitoring ---------------------------------------------------------
+# A 2026-08-29 bench session cooked the arm and tripped its supply after 16 minutes; the software
+# saw neither the heat nor the silence that followed. These cover both.
+
+
+def _hot(motor, temperature, others=25.0):
+    return {**dict.fromkeys(JOINTS, others), motor: temperature}
+
+
+def test_observation_carries_temperature_and_torque(follower):
+    set_positions(
+        follower.bus,
+        dict.fromkeys(JOINTS, 3.0),
+        temperatures=_hot("elbow_flex", 41.5),
+        torques={**dict.fromkeys(JOINTS, 0.0), "elbow_flex": -2.25},
+    )
+    obs = follower.get_observation()
+    assert set(obs) == set(follower.observation_features)
+    assert obs["elbow_flex.temp"] == 41.5
+    assert obs["elbow_flex.torque"] == -2.25
+    assert obs["wrist_roll.temp"] == 25.0
+    # No extra bus traffic: the three reads per motor are served from one cached feedback frame.
+    assert {c.args[0] for c in follower.bus.read.call_args_list} == {
+        "Present_Position",
+        "Temperature_MOS",
+        "Present_Torque",
+    }
+
+
+def test_a_missed_frame_keeps_the_previous_telemetry(follower):
+    set_positions(follower.bus, dict.fromkeys(JOINTS, 3.0), temperatures=_hot("wrist_flex", 44.0))
+    follower.get_observation()
+    follower.bus.read.side_effect = ConnectionError("no response")
+    obs = follower.get_observation()
+    assert obs["wrist_flex.temp"] == 44.0
+
+
+def test_a_hot_joint_warns_before_the_stop(follower, caplog):
+    set_positions(follower.bus, dict.fromkeys(JOINTS, 0.0), temperatures=_hot("shoulder_lift", 64.0))
+    with caplog.at_level(logging.WARNING):
+        follower.get_observation()
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert "shoulder_lift" in warnings[0] and "64.0 C" in warnings[0]
+    # The operator has to be told to park the arm, because the stop drops it.
+    assert "rest pose" in warnings[0]
+
+    # Still under the critical limit, so the arm keeps moving.
+    follower.send_action({"shoulder_lift.pos": -20.0})
+    assert goal_writes(follower.bus) == {"shoulder_lift": -20.0}
+
+    # Rate limited: the next cycles inside the window do not repeat it.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        follower.get_observation()
+        follower.get_observation()
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+def test_a_critical_joint_shouts_but_never_stops_the_arm(follower, caplog):
+    set_positions(follower.bus, dict.fromkeys(JOINTS, 0.0), temperatures=_hot("elbow_flex", 76.0))
+    with caplog.at_level(logging.WARNING):
+        follower.get_observation()
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 1
+    assert "elbow_flex" in errors[0] and "76.0 C" in errors[0] and "rest pose" in errors[0]
+
+    # Ending the session releases torque and drops the arm, so the follower keeps driving and
+    # leaves stopping to the operator.
+    follower.send_action({"elbow_flex.pos": 40.0})
+    assert goal_writes(follower.bus) == {"elbow_flex": 40.0}
+    follower.bus.disable_torque.assert_not_called()
+
+    # The critical line repeats every 2 s, not every tick.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        follower.get_observation()
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+def test_thresholds_are_configurable(tmp_path, caplog):
+    r = MakerFollower(
+        MakerFollowerConfig(
+            port="/dev/fake",
+            calibration_dir=tmp_path,
+            startup_sync_speed_deg=None,
+            temp_warn_c=30.0,
+            temp_critical_c=40.0,
+        )
+    )
+    r.bus = MagicMock()
+    r.bus.is_connected = True
+    set_positions(r.bus, dict.fromkeys(JOINTS, 0.0), temperatures=_hot("gripper", 41.0))
+    with caplog.at_level(logging.WARNING):
+        r.get_observation()
+    assert any("40 C critical limit" in rec.getMessage() for rec in caplog.records)
+    r.send_action({"gripper.pos": -10.0})
+    assert goal_writes(r.bus) == {"gripper": -10.0}
+
+
+def test_the_health_line_traces_every_joint(follower, caplog):
+    set_positions(follower.bus, dict.fromkeys(JOINTS, 0.0), temperatures=_hot("wrist_yaw", 48.0))
+    with caplog.at_level(logging.INFO):
+        follower.get_observation()
+    lines = [r.getMessage() for r in caplog.records if "temperatures (C)" in r.getMessage()]
+    assert len(lines) == 1
+    assert all(joint in lines[0] for joint in JOINTS)
+    assert "max wrist_yaw 48.0" in lines[0]
+
+    # Once per interval, not once per control tick.
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        follower.get_observation()
+    assert [r for r in caplog.records if "temperatures (C)" in r.getMessage()] == []
+
+
+def test_a_single_silent_motor_warns_but_keeps_the_session_alive(follower, caplog):
+    follower.config.max_silent_cycles = 3
+    set_positions(follower.bus, dict.fromkeys(JOINTS, 2.0))
+    follower.get_observation()
+
+    def _silent_wrist_roll(data_name, motor):
+        if motor == "wrist_roll":
+            raise ConnectionError("no response")
+        return 2.0 if data_name == "Present_Position" else 25.0
+
+    follower.bus.read.side_effect = _silent_wrist_roll
+    for _ in range(2):
+        # Under the limit the tick still serves last-known values, as it did before.
+        assert follower.get_observation()["wrist_roll.pos"] == 2.0
+    with caplog.at_level(logging.WARNING):
+        # Over the limit it still serves them: the other six joints are holding, and ending the
+        # session would drop them. Only the motor that went quiet is named.
+        assert follower.get_observation()["wrist_roll.pos"] == 2.0
+    warnings = [r.getMessage() for r in caplog.records if "no CAN feedback" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "wrist_roll" in warnings[0] and "shoulder_pan" not in warnings[0]
+
+    # Any successful read clears it.
+    set_positions(follower.bus, dict.fromkeys(JOINTS, 2.0))
+    follower.get_observation()
+    assert set(follower._silent_cycles.values()) == {0}
+
+
+def test_a_fully_silent_bus_stops_the_loop(follower):
+    """Every joint silent is a tripped supply or a dead adapter: nothing is holding the arm."""
+    follower.config.max_silent_cycles = 3
+    set_positions(follower.bus, dict.fromkeys(JOINTS, 2.0))
+    follower.get_observation()
+    follower.bus.read.side_effect = ConnectionError("no response")
+    for _ in range(2):
+        follower.get_observation()
+    with pytest.raises(RuntimeError, match="no CAN feedback from any motor") as excinfo:
+        follower.get_observation()
+    assert "check arm power / CAN adapter" in str(excinfo.value)
+
+
+def test_silence_detection_can_be_switched_off(follower):
+    follower.config.max_silent_cycles = 0
+    set_positions(follower.bus, dict.fromkeys(JOINTS, 2.0))
+    follower.get_observation()
+    follower.bus.read.side_effect = ConnectionError("no response")
+    for _ in range(50):
+        follower.get_observation()
