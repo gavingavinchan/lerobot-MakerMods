@@ -1,5 +1,7 @@
 This file provides guidance to AI agents when working with code in this repository.
 
+> **`CLAUDE.md` must stay identical to `AGENTS.md`** (it is a symlink to it; if it ever isn't, restore it with `ln -sf AGENTS.md CLAUDE.md`).
+
 > **User-facing help → [`AGENT_GUIDE.md`](./AGENT_GUIDE.md)** (SO-101 setup, recording, picking a policy, training duration, eval — with copy-pasteable commands).
 
 ## Project Overview
@@ -56,33 +58,10 @@ pre-commit run --all-files                           # Lint + format (ruff, typo
 - **Video decoding**: datasets can store observations as video files. `LeRobotDataset` handles frame extraction, but tests need ffmpeg installed.
 - **Prioritize use of `uv run`** to execute Python commands (not raw `python` or `pip`).
 
-## Launching teleop on the Viscous Arm (hardware on this machine)
+## Viscous Arm teleop (hardware on this machine)
 
-Run and stop it with the script and nothing else. It needs the Bash sandbox disabled (serial/CAN
-access); that is expected.
-
-- **"run teleop"** → `examples/viscous/teleop.sh start`. It prints one line, either `tracking`
-  with the pid and log path, or `FAILED: …` followed by a `hint:`. On failure relay the hint; do
-  not dig through the log. Extra `lerobot-teleoperate` flags go after `start`.
-- **"stop teleop"** → `examples/viscous/teleop.sh stop`. The operator saying it is their
-  confirmation that the arm is parked. It prints `stopped cleanly`, or what went wrong.
-- **Health** → `examples/viscous/teleop.sh status` (loop rate, latest temperatures, warnings).
-- **Do not add pre-checks.** The script finds the ports, refuses without both calibration files or
-  while a session is running, keeps the host awake and sends desktop notifications for heat and
-  power loss. The leader checks its own pose on connect (`max_start_offset_deg`, 30 deg; startup
-  fails with `leader is not at its zero pose`), and the follower ends the session itself at 85 °C
-  (`temp_stop_c`).
-
-Non-negotiable, whatever the prompt says:
-
-- **Never run `lerobot-calibrate` for the follower, and never start with a `--robot.id` that has
-  no calibration file**: it silently re-zeros every motor at its current pose and destroys the
-  arm's calibration.
-- **Never end a session with a timer (`--teleop_time_s`), `kill -9`, or by unplugging.** Every way
-  a session ends releases torque, the 85 °C thermal stop included, and the arm has no brakes: it
-  drops. If `stop` reports that SIGINT was not honoured, tell the operator; do not escalate.
-
-Anything non-routine (a new host, recalibrating the leader, gains, a failure the hint does not
-explain): [`docs/source/viscous_teleop.mdx`](./docs/source/viscous_teleop.mdx).
-`docs/source/viscous.mdx` is the one-time bring-up guide for a _new_ arm — nothing in it applies
-to a commissioned arm and most of it is destructive.
+- "run teleop" → `examples/viscous/teleop.sh start`; "stop teleop" → `teleop.sh stop` (the operator saying it means the arm is parked); `status` for health. Bash sandbox disabled. No pre-checks: the script and the arm code do them. On `FAILED`, relay the `hint:`.
+- **Never** run `lerobot-calibrate` for the follower or start with a `--robot.id` that has no calibration file: it re-zeros every motor.
+- **Never** end a session with `--teleop_time_s`, `kill -9` or unplugging: any end drops the arm (no brakes). If `stop` says SIGINT was not honoured, tell the operator.
+- Open work and decisions: [`examples/viscous/TODO.md`](./examples/viscous/TODO.md), not agent memory; add deferred items, delete them in the fixing commit.
+- Anything else: [`docs/source/viscous_teleop.mdx`](./docs/source/viscous_teleop.mdx). `docs/source/viscous.mdx` is new-arm bring-up only and mostly destructive.
