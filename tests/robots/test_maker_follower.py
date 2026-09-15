@@ -381,6 +381,54 @@ def test_thresholds_are_configurable(tmp_path, caplog):
     assert goal_writes(r.bus) == {"gripper": -10.0}
 
 
+def test_the_thermal_stop_is_off_by_default():
+    assert MakerFollowerConfig(port="/dev/fake").temp_stop_c is None
+
+
+def test_a_thermal_stop_must_sit_above_the_critical_limit(tmp_path):
+    with pytest.raises(ValueError, match="temp_stop_c"):
+        MakerFollower(MakerFollowerConfig(port="/dev/fake", calibration_dir=tmp_path, temp_stop_c=75.0))
+
+
+def _stopping_follower(tmp_path):
+    r = MakerFollower(
+        MakerFollowerConfig(
+            port="/dev/fake", calibration_dir=tmp_path, startup_sync_speed_deg=None, temp_stop_c=85.0
+        )
+    )
+    r.bus = MagicMock()
+    r.bus.is_connected = True
+    return r
+
+
+def test_the_thermal_stop_fires_on_the_third_consecutive_hot_reading(tmp_path, caplog):
+    r = _stopping_follower(tmp_path)
+    set_positions(r.bus, dict.fromkeys(JOINTS, 0.0), temperatures=_hot("elbow_flex", 86.0))
+    # The critical line says the session will end itself, not that it keeps driving.
+    with caplog.at_level(logging.ERROR):
+        r.get_observation()
+    assert any("ends itself at 85 C" in rec.getMessage() for rec in caplog.records)
+    r.get_observation()
+    with pytest.raises(RuntimeError, match="thermal stop") as excinfo:
+        r.get_observation()
+    assert "elbow_flex" in str(excinfo.value)
+
+
+def test_a_single_hot_spike_does_not_stop_the_arm(tmp_path):
+    r = _stopping_follower(tmp_path)
+    set_positions(r.bus, dict.fromkeys(JOINTS, 0.0), temperatures=_hot("wrist_flex", 90.0))
+    r.get_observation()
+    r.get_observation()
+    # A reading under the limit resets the count, so two more hot readings are not enough.
+    set_positions(r.bus, dict.fromkeys(JOINTS, 0.0), temperatures=_hot("wrist_flex", 60.0))
+    r.get_observation()
+    set_positions(r.bus, dict.fromkeys(JOINTS, 0.0), temperatures=_hot("wrist_flex", 90.0))
+    r.get_observation()
+    r.get_observation()
+    r.send_action({"wrist_flex.pos": 10.0})
+    assert goal_writes(r.bus) == {"wrist_flex": 10.0}
+
+
 def test_the_health_line_traces_every_joint(follower, caplog):
     set_positions(follower.bus, dict.fromkeys(JOINTS, 0.0), temperatures=_hot("wrist_yaw", 48.0))
     with caplog.at_level(logging.INFO):

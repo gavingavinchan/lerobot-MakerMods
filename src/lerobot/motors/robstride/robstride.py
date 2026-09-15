@@ -56,6 +56,12 @@ from .tables import (
 
 logger = logging.getLogger(__name__)
 
+# python-can's slcan backend sleeps `sleep_after_open` (2 s by default) right after opening the
+# serial port: that was the whole 2 s pause before "Starting handshake". The default exists for
+# adapters that reset when their port opens (Arduino-style USB serial). The CANable 2.0 is a native
+# CDC-ACM device that does not reset, so a short settle is enough. To be verified on hardware.
+SLCAN_SLEEP_AFTER_OPEN_S = 0.1
+
 
 class MotorState(TypedDict):
     position: float
@@ -190,11 +196,13 @@ class RobstrideMotorsBus(MotorsBusBase):
                     self.can_interface = "socketcan"
                     logger.info(f"Auto-detected socketcan interface for port {self.port}")
 
-            kwargs = {
+            kwargs: dict[str, Any] = {
                 "channel": self.port,
                 "bitrate": self.bitrate,
                 "interface": self.can_interface,
             }
+            if self.can_interface == "slcan":
+                kwargs["sleep_after_open"] = SLCAN_SLEEP_AFTER_OPEN_S
 
             if self.can_interface == "socketcan" and self.use_can_fd and self.data_bitrate is not None:
                 kwargs.update({"data_bitrate": self.data_bitrate, "fd": True})

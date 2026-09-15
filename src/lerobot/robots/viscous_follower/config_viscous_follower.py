@@ -78,6 +78,11 @@ class ViscousFollowerConfigBase(MakerFollowerConfigBase):
         }
     )
 
+    # Thermal stop (see `MakerFollowerConfigBase.temp_stop_c`): ends the session, and drops the
+    # arm, once a joint holds 85 C. The operator's choice on 2026-09-15, the day the RS00 motors at
+    # J2/J3 went from 38 to 56 C within 3 minutes of dry-bench teleop.
+    temp_stop_c: float | None = 85.0
+
 
 @RobotConfig.register_subclass("viscous_follower")
 @dataclass

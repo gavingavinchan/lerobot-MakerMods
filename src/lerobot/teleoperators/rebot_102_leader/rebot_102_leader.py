@@ -176,6 +176,12 @@ class RebotArm102Leader(Teleoperator):
 
             self.configure()
 
+            # Gated on `calibrate`: `lerobot-calibrate` connects with calibrate=False, which is
+            # exactly when the arm may be away from zero. In teleoperate/record the leader
+            # connects before the follower, so a refusal here means the follower never gets torque.
+            if calibrate and self.config.max_start_offset_deg is not None:
+                self._check_start_pose(self.config.max_start_offset_deg)
+
             if self.config.button.enabled and self.config.button.lock_on_connect:
                 self.lock()
         except Exception:
@@ -244,6 +250,25 @@ class RebotArm102Leader(Teleoperator):
                 raise RuntimeError(f"Servo {motor_name} (id={motor_id}) has never responded.")
             raw_positions[motor_name] = monitor.angle_deg
         return raw_positions
+
+    def _check_start_pose(self, limit_deg: float) -> None:
+        """Refuse to start while any joint sits more than `limit_deg` raw degrees from its zero.
+
+        Angles are wrapped to [-180, 180) first, so a servo reading 358 deg counts as -2 deg.
+        """
+        off_zero: dict[str, float] = {}
+        for motor_name, angle in self._read_raw_positions().items():
+            wrapped = (angle + 180.0) % 360.0 - 180.0
+            if abs(wrapped) > limit_deg:
+                off_zero[motor_name] = wrapped
+        if off_zero:
+            joints = ", ".join(f"{m} at {a:+.1f} deg" for m, a in off_zero.items())
+            raise RuntimeError(
+                f"{self}: leader is not at its zero pose: {joints} (limit {limit_deg:.0f} deg). "
+                "A follower drives to the leader's pose as soon as it connects, so fold the leader "
+                "to its zero pose and start again. Pass --teleop.max_start_offset_deg=null to "
+                "disable this check."
+            )
 
     @staticmethod
     def _round_to_valid_range(value: float, min_value: float, max_value: float) -> tuple[float, int]:

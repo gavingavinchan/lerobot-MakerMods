@@ -8,6 +8,47 @@ If the arm has never been brought up — CAN ids unassigned, motors still on the
 protocol — start from [Viscous Arm](./viscous) instead. The examples use unit 1 (commissioned
 2026-08-28/29): follower id `viscous_01`, leader id `star_viscous`.
 
+## Quick start
+
+On a machine that is already set up ([Install](#install), calibration files in place per
+[Find the calibration ids](#find-the-calibration-ids)), fold the Star to its zero pose, keep hands
+clear of the follower, and:
+
+```bash
+examples/viscous/teleop.sh start    # "tracking (pid …, log …)", or "FAILED: …" with a hint
+examples/viscous/teleop.sh status   # loop rate, latest temperatures, warning/error counts
+examples/viscous/teleop.sh stop     # park the arm folded with the leader FIRST, then stop
+```
+
+`start` finds both ports, refuses to launch without both calibration files or while a session is
+already running, runs `lerobot-teleoperate` in the background, keeps the host from idle-sleeping
+(`systemd-inhibit` on Linux, `caffeinate` on macOS), and waits until the follower tracks the
+leader. While the session runs it sends a desktop notification when a motor runs hot, when the
+follower hits its thermal stop, when motor power is lost, and when the session ends without a
+`stop`. Extra `lerobot-teleoperate` flags go after `start`, e.g.
+`examples/viscous/teleop.sh start --teleop.button.enabled=true`.
+
+`stop` sends SIGINT and reports `stopped cleanly` only once both arms have logged their disconnect.
+If SIGINT is not honoured it says so and does not escalate: a forced kill skips the clean
+disconnect, and the arm drops either way.
+
+Session logs, the pidfile and a copy of every notification live in
+`~/.local/state/lerobot/viscous_teleop/`; `latest.log` points at the newest session. Overrides:
+
+| Variable                  | Default                                    | What it sets                                       |
+| ------------------------- | ------------------------------------------ | -------------------------------------------------- |
+| `VISCOUS_ROBOT_ID`        | `viscous_01`                               | Follower calibration id                            |
+| `VISCOUS_TELEOP_ID`       | `star_viscous`                             | Leader calibration id                              |
+| `VISCOUS_CAN_PORT`        | auto-detected                              | Follower CANable port                              |
+| `VISCOUS_STAR_PORT`       | auto-detected                              | Star leader port                                   |
+| `VISCOUS_TELEOP_BIN`      | `.venv/bin/lerobot-teleoperate`            | Teleop entry point (no `uv run`, for a fast start) |
+| `VISCOUS_NOTIFY`          | `1`                                        | `0` only logs notifications, no desktop pop-ups    |
+| `VISCOUS_START_TIMEOUT_S` | `30`                                       | Seconds `start` waits for tracking                 |
+| `HF_LEROBOT_CALIBRATION`  | `~/.cache/huggingface/lerobot/calibration` | Calibration root, as everywhere in LeRobot         |
+| `XDG_STATE_HOME`          | `~/.local/state`                           | Parent of the state directory                      |
+
+The rest of this page is what the script does for you, step by step.
+
 ## Install
 
 The Viscous types live on the `robot/viscous-arm` branch. From a checkout of that branch:
@@ -33,6 +74,12 @@ Two USB devices, and they are told apart by their driver, not by their number:
 The CANable is a native CDC-ACM device (`usbmodem`); the Star goes through a CH340 UART bridge
 (`wchusbserial`). Confirm with `lerobot-find-port`, which asks you to unplug the device and names
 the port that disappeared.
+
+On Linux, prefer the stable names under `/dev/serial/by-id/`, which survive moving a cable to
+another USB socket: `usb-Openlight_Labs_CANable2_…-if00` for the follower and
+`usb-1a86_USB_Serial-if00-port0` for the Star. `teleop.sh` auto-detects ports from these names
+(and from `/dev/cu.usbmodem*` / `/dev/cu.wchusbserial*` on macOS). The Star's name belongs to any
+CH340 bridge, so with a second CH340 device plugged in, set `VISCOUS_STAR_PORT`.
 
 On unit 1's Mac the two came up as `/dev/cu.usbmodem2050389538461` and `/dev/cu.wchusbserial10`.
 **These are examples**: the suffixes are per-machine and change with the USB port, so read yours
@@ -94,6 +141,12 @@ Fold the Star to its zero pose and keep hands, cables and bystanders clear of th
 `startup_sync_speed_deg` per step until each joint is within `startup_sync_tolerance_deg` — then
 switches to full-speed tracking. A leader left in an extended pose means the follower travels
 there as its first motion of the session.
+
+To catch that, the leader checks its own pose when it connects, before the follower is touched: if
+any joint reads more than `max_start_offset_deg` away from its zero (30° in raw servo degrees on
+the Viscous preset), startup fails with `leader is not at its zero pose` and the follower never
+gets torque. Fold the leader and start again. `--teleop.max_start_offset_deg=null` turns the check
+off.
 
 ## Run the teleop loop
 
@@ -189,13 +242,16 @@ arm; it never touches calibration.
 cable, cut motor power — releases torque, and a torque-free arm drops under gravity from wherever
 it is.
 
-So the rule is: **bring the arm to its rest (folded) pose with the leader first, then Ctrl-C.**
+So the rule is: **bring the arm to its rest (folded) pose with the leader first, then Ctrl-C**
+(or `examples/viscous/teleop.sh stop` for a session started with the script).
 
 - **Never use `--teleop_time_s`.** It ends the session on a timer, in whatever pose the arm
   happens to be holding.
 - **Never unplug USB or cut power mid-session.** Same failure, with no warning at all.
 - The motor-side CAN watchdog (200 ms) drops torque on its own if the host stalls, so a frozen
   laptop drops the arm too. Park it before you walk away from it.
+- The follower's 85 °C [thermal stop](#thermal-duty) ends the session on its own, and the arm drops
+  the same way.
 
 ## Thermal duty
 
@@ -224,11 +280,16 @@ The follower watches the temperature every motor reports:
   once per joint per 10 s.
 - Above `temp_critical_c` (75 °C) that becomes an ERROR-level line every 2 s until the arm is
   parked.
+- At `temp_stop_c` (85 °C on the Viscous Arm) the follower ends the session itself: once a joint
+  reads at or above it for three consecutive readings, `get_observation` raises a `thermal stop`
+  error and the session disconnects. **That drops the arm**, like every other way a session ends.
+  It is there so a forgotten raised pose ends at 85 °C instead of at the motor's own cut-out, which
+  drops the arm just the same. Change it with `--robot.temp_stop_c`, or turn it off with
+  `--robot.temp_stop_c=null`.
 
 **When the warning appears, bring the arm to its rest pose, then end the session yourself.** The
-follower never stops a session on temperature: every way a session ends releases torque, and the
-arm has no brakes, so a stop triggered mid-motion drops it. The 15 °C between the two thresholds is
-the window to park the arm while it is still under control.
+25 °C between the warning and the thermal stop is the window to park the arm while it is still
+under control.
 
 Both defaults sit far below the motor's own protection: the RS00 firmware warns at 135 °C and
 faults its thermistor at 145 °C, the winding limit. By the time the motor protects itself the arm

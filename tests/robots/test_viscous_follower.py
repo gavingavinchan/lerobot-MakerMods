@@ -108,9 +108,9 @@ def test_registered_type_resolves():
 def test_the_thermal_guard_is_inherited(follower):
     """RS00 on J2/J3 fighting gravity on a dry bench is what cooked this arm on 2026-08-29."""
     cfg = follower.config
-    assert (cfg.temp_warn_c, cfg.temp_critical_c) == (60.0, 75.0)
+    assert (cfg.temp_warn_c, cfg.temp_critical_c, cfg.temp_stop_c) == (60.0, 75.0, 85.0)
     # Well under the RS00's own protection: firmware warns at 135 C and faults at 145 C.
-    assert cfg.temp_critical_c < 135.0
+    assert cfg.temp_stop_c < 135.0
 
     assert "shoulder_lift.temp" in follower.observation_features
 
@@ -120,10 +120,23 @@ def test_the_thermal_guard_is_inherited(follower):
     )
     obs = follower.get_observation()
     assert obs["shoulder_lift.temp"] == 78.0
-    # Over the critical limit the follower shouts but keeps driving: stopping on its own would
-    # release torque and drop the arm.
+    # Over the critical limit but under the stop the follower shouts and keeps driving: stopping
+    # releases torque and drops the arm.
+    follower.get_observation()
+    follower.get_observation()
     follower.send_action({"shoulder_lift.pos": -90.0})
     follower.bus.disable_torque.assert_not_called()
+
+
+def test_the_thermal_stop_ends_the_session_at_85_c(follower):
+    temperatures = {**dict.fromkeys(JOINTS, 30.0), "elbow_flex": 85.0}
+    follower.bus.read.side_effect = lambda data_name, motor: (
+        temperatures[motor] if data_name == "Temperature_MOS" else 0.0
+    )
+    follower.get_observation()
+    follower.get_observation()
+    with pytest.raises(RuntimeError, match="thermal stop"):
+        follower.get_observation()
 
 
 def test_a_dead_bus_ends_the_session(follower):

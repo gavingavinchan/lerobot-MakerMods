@@ -141,6 +141,13 @@ class RebotArm102LeaderConfig:
     # stop sits well inside the follower's range (see the Viscous preset).
     joint_offsets: dict[str, float] = field(default_factory=dict)
 
+    # On connect, refuse to start if any joint's raw servo angle is more than this many degrees
+    # from its zero: a follower drives to the leader's pose as soon as it connects, so a leader
+    # left extended becomes the follower's first motion. Raw servo degrees, before
+    # `joint_directions` / `joint_offsets` -- the same frame `examples/viscous/leader_zero_check.py`
+    # reads. None disables the check.
+    max_start_offset_deg: float | None = None
+
     # Optional lock-button support (102-HD only). Nested so every preset inherits it and the
     # CLI reaches it as `--teleop.button.enabled=true`, `--teleop.button.id=7`, ...
     button: RebotArm102LeaderButtonConfig = field(default_factory=RebotArm102LeaderButtonConfig)

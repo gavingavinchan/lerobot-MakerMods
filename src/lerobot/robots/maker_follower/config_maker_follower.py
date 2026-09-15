@@ -114,12 +114,18 @@ class MakerFollowerConfigBase:
     # time to park the arm; it is in the same territory as the maker-arm SDK's teleop CLI, which
     # aborts at `--max-temperature 70` by default.
     #
-    # Both thresholds only log — a WARNING every 10 s over `temp_warn_c`, an ERROR every 2 s over
-    # `temp_critical_c`. The follower never ends a session on temperature: ending a session
-    # releases torque, and a stop triggered mid-motion drops the arm. Parking it and stopping is
-    # the operator's call.
+    # `temp_warn_c` and `temp_critical_c` only log — a WARNING every 10 s over the first, an ERROR
+    # every 2 s over the second. Parking the arm and ending the session is the operator's call.
+    #
+    # `temp_stop_c`, when set, is a last line of defence: a joint at or over it for a few
+    # consecutive readings makes `get_observation` raise, which ends the session. Ending a session
+    # releases torque and the arm has no brakes, so when it fires the arm DROPS from wherever it
+    # is. It is not a substitute for parking; it only beats waiting for the motor's own 135 / 145 C
+    # protection, which cuts out and drops the arm anyway, much later. None (the Maker default)
+    # never stops on temperature. Must sit above `temp_critical_c`.
     temp_warn_c: float = 60.0
     temp_critical_c: float = 75.0
+    temp_stop_c: float | None = None
 
     # How many consecutive read cycles a motor may return no CAN feedback before the follower
     # reacts. 30 cycles is half a second at 60 Hz. A single silent joint only logs a warning and

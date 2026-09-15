@@ -84,6 +84,11 @@ class RebotArm102LeaderViscousConfig(RebotArm102LeaderConfig):
     # gripper is re-zeroed at commissioning, re-measure and update this.
     joint_offsets: dict[str, float] = field(default_factory=lambda: {"gripper": -33.0})
 
+    # Operator's choice, 2026-09-15: the folded Star reads within ~11 deg of zero on every joint
+    # (wrist_flex sits at +10.6), so 30 catches a leader left extended without tripping on a
+    # folded one.
+    max_start_offset_deg: float | None = 30.0
+
 
 @TeleoperatorConfig.register_subclass("rebot_102_leader_viscous")
 @dataclass

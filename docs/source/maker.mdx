@@ -240,6 +240,11 @@ out. It never stops the session itself: ending a session releases torque, and a 
 mid-motion drops the arm. **When the warning appears, bring the arm to its rest pose, then end
 the session yourself.**
 
+`temp_stop_c` adds an automatic stop: a joint at or over it for 3 consecutive readings makes
+`get_observation()` raise and end the session. It is off (`None`) on Maker. When it fires, torque
+is released and the arm drops, so it is a last line of defence, not a way to park; the Viscous
+Arm sets it to 85 °C.
+
 Holding a raised pose against gravity is what heats these motors. Rest the arm folded between
 runs. The [Viscous Arm](./viscous.mdx), which carries RS00 motors at `shoulder_lift` and
 `elbow_flex` where Maker has RS02, tripped its supply after 16 minutes of raised-pose bench teleop
@@ -449,6 +454,7 @@ there. That is untested, and one millisecond per joint is not worth two code pat
 | `max_relative_target`          | `None`          | Per-step motion cap in degrees. Accepts a float or per-joint dictionary                     |
 | `temp_warn_c`                  | `60.0`          | Winding temperature in °C at which a joint logs a warning                                   |
 | `temp_critical_c`              | `75.0`          | Winding temperature in °C above which the warning escalates to an ERROR every 2 s           |
+| `temp_stop_c`                  | `None`          | Winding temperature in °C held for 3 readings that ends the session (drops the arm)         |
 | `max_silent_cycles`            | `30`            | Read cycles without CAN feedback before a joint warns (all silent: raises). `0` disables it |
 | `disable_torque_on_disconnect` | `True`          | Sends stop frames before closing the CAN bus                                                |
 | `cameras`                      | `{}`            | Camera configurations keyed by camera name                                                  |

@@ -69,6 +69,10 @@ _TEMP_CRITICAL_INTERVAL_S = 2.0
 _SILENCE_WARN_INTERVAL_S = 2.0
 _HEALTH_LOG_INTERVAL_S = 30.0
 
+# Consecutive observation cycles a joint must read at or over `temp_stop_c` before the thermal stop
+# fires. The stop drops the arm, so one corrupted feedback frame must not be enough.
+_TEMP_STOP_CYCLES = 3
+
 
 class MakerFollower(Robot):
     """
@@ -105,6 +109,13 @@ class MakerFollower(Robot):
                 "interface (`sudo slcand -o -f -s8 /dev/ttyACM0 can0 && sudo ip link set up can0`) "
                 "and set port='can0'. On macOS/Windows, where SocketCAN does not exist, use "
                 "can_interface='slcan' with the adapter's serial port as `port`."
+            )
+
+        if config.temp_stop_c is not None and config.temp_stop_c <= config.temp_critical_c:
+            raise ValueError(
+                f"{self.name} temp_stop_c ({config.temp_stop_c} C) must be above temp_critical_c "
+                f"({config.temp_critical_c} C): the stop drops the arm, so the operator needs the "
+                "critical warning first."
             )
 
         # RobStride MIT feedback carries the motor id in payload byte 0, so recv_id == id.
@@ -149,6 +160,8 @@ class MakerFollower(Robot):
         self._last_torques: dict[str, float] = {}
         # Consecutive read cycles in which a motor answered nothing at all.
         self._silent_cycles: dict[str, int] = dict.fromkeys(self._joint_motor_names, 0)
+        # Consecutive observation cycles a motor has read at or over `temp_stop_c`.
+        self._hot_cycles: dict[str, int] = dict.fromkeys(self._joint_motor_names, 0)
         # Rate-limit marks for the thermal logs.
         self._last_temp_warn_t: dict[str, float] = {}
         self._last_silence_warn_t: float | None = None
@@ -230,11 +243,11 @@ class MakerFollower(Robot):
     def _monitor_temperatures(self) -> None:
         """Log the thermal state: rate-limited warnings per hot joint, plus a periodic health line.
 
-        Logging only, deliberately. The follower never ends a session on temperature: every way a
-        session ends (an exception, a disconnect, cutting motor power) releases torque, and the arm
-        has no brakes, so a stop triggered mid-motion drops it. Over `temp_critical_c` the warning
-        becomes an ERROR-level line every 2 s until the operator parks the arm and ends the session
-        themselves.
+        Logging only, deliberately: every way a session ends (an exception, a disconnect, cutting
+        motor power) releases torque, and the arm has no brakes, so a stop triggered mid-motion
+        drops it. Over `temp_critical_c` the warning becomes an ERROR-level line every 2 s until the
+        operator parks the arm and ends the session themselves. The only automatic stop is
+        `temp_stop_c`, checked separately in `_check_thermal_stop`.
         """
         if not self._last_temperatures:
             return
@@ -250,11 +263,17 @@ class MakerFollower(Robot):
                 continue
             self._last_temp_warn_t[motor] = now
             if critical:
+                stop_note = (
+                    " The follower keeps driving because stopping on its own would release torque "
+                    "and drop the arm."
+                    if self.config.temp_stop_c is None
+                    else f" The session ends itself at {self.config.temp_stop_c:.0f} C, and the arm "
+                    "drops when it does."
+                )
                 logger.error(
                     f"{self} {motor} is at {temperature:.1f} C, over the "
                     f"{self.config.temp_critical_c:.0f} C critical limit. Park the arm in its rest "
-                    "pose NOW and end the session once it is resting. The follower keeps driving "
-                    "because stopping on its own would release torque and drop the arm."
+                    f"pose NOW and end the session once it is resting.{stop_note}"
                 )
             else:
                 logger.warning(
@@ -272,6 +291,28 @@ class MakerFollower(Robot):
         logger.info(
             f"{self} temperatures (C): {readings} | max {hottest} {self._last_temperatures[hottest]:.1f}"
         )
+
+    def _check_thermal_stop(self) -> None:
+        """End the session once a joint has held `temp_stop_c` for `_TEMP_STOP_CYCLES` readings.
+
+        Raising releases torque and drops the arm, so this is the last line of defence, not a
+        way to park. A reading under the limit resets that joint's count, so a single corrupted
+        frame cannot fire it. A silent motor keeps its last known temperature and keeps counting.
+        """
+        if self.config.temp_stop_c is None:
+            return
+        for motor, temperature in self._last_temperatures.items():
+            if temperature < self.config.temp_stop_c:
+                self._hot_cycles[motor] = 0
+                continue
+            self._hot_cycles[motor] = self._hot_cycles.get(motor, 0) + 1
+            if self._hot_cycles[motor] >= _TEMP_STOP_CYCLES:
+                raise RuntimeError(
+                    f"{self} thermal stop: {motor} at {temperature:.1f} C for "
+                    f"{self._hot_cycles[motor]} consecutive readings "
+                    f"(temp_stop_c={self.config.temp_stop_c:.0f} C). Ending the session; torque is "
+                    "released and the arm has no brakes, so it drops."
+                )
 
     def _check_bus_silence(self) -> None:
         """React to motors that have answered nothing for `max_silent_cycles` read cycles.
@@ -390,6 +431,7 @@ class MakerFollower(Robot):
         self._sync_progress = {}
         # A new session starts with a clean bus-silence count and prints its own health line.
         self._silent_cycles = dict.fromkeys(self._joint_motor_names, 0)
+        self._hot_cycles = dict.fromkeys(self._joint_motor_names, 0)
         self._last_temp_warn_t = {}
         self._last_silence_warn_t = None
         self._last_health_log_t = None
@@ -465,6 +507,7 @@ class MakerFollower(Robot):
 
         positions = self._read_present_positions()
         self._check_bus_silence()
+        self._check_thermal_stop()
         for motor in self._joint_motor_names:
             obs_dict[f"{motor}.pos"] = positions[motor]
         # A motor that missed this cycle's frame reports its last known telemetry, the same way
@@ -494,8 +537,9 @@ class MakerFollower(Robot):
                 "turn, so the motor zero no longer matches the calibration pose. Move the arm to "
                 "its zero pose and run `lerobot-calibrate` again."
             )
-        # Deliberately no thermal stop here: temperature is logged by `_monitor_temperatures`, and
-        # ending the session is the operator's call, because ending it releases torque.
+        # Deliberately no thermal stop here: temperature is logged by `_monitor_temperatures`, the
+        # optional `temp_stop_c` stop lives in `get_observation`, and anything short of it is the
+        # operator's call, because ending the session releases torque.
         goal_pos = {key.removesuffix(".pos"): val for key, val in action.items() if key.endswith(".pos")}
 
         # Clamp every motor, gripper included, to its soft limit.

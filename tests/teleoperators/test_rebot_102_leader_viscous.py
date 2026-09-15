@@ -128,3 +128,79 @@ def test_action_applies_scale_and_stays_inside_range(raw_deg):
     for joint, (lo, hi) in cfg.joint_ranges.items():
         value = action[f"{joint}.pos"]
         assert lo <= value <= hi, joint
+
+
+# --- start-pose check ----------------------------------------------------------------------
+# On connect the follower drives to the leader's pose, so a leader left extended would become the
+# follower's first motion. The leader refuses to start before the follower ever connects.
+
+
+def _bus_at(raw_by_joint: dict[str, float]) -> MagicMock:
+    """A bus reporting `raw_by_joint` raw degrees, and 5 deg for every joint not listed."""
+    names = {
+        servo_id: joint for joint, servo_id in RebotArm102LeaderViscousConfig(port="x").joint_ids.items()
+    }
+    bus = MagicMock(name="FashionStarServoMock")
+    bus.ping.return_value = True
+    bus.sync_monitor.side_effect = lambda ids: {
+        i: MagicMock(angle_deg=raw_by_joint.get(names[i], 5.0)) for i in ids
+    }
+    return bus
+
+
+def _connect_at(raw_by_joint: dict[str, float], calibrate: bool = True, bus: MagicMock | None = None):
+    cfg = RebotArm102LeaderViscousTeleopConfig(port="/dev/null")
+    bus = _bus_at(raw_by_joint) if bus is None else bus
+    with (
+        patch(f"{_MODULE}.require_package", lambda *a, **kw: None),
+        patch(f"{_MODULE}.FashionStarServo", return_value=bus),
+    ):
+        teleop = RebotArm102Leader(cfg)
+        # Count as calibrated so connect(calibrate=True) does not prompt.
+        teleop.calibration = dict.fromkeys(teleop.motor_names, object())
+        teleop.connect(calibrate=calibrate)
+    return teleop, bus
+
+
+def test_start_offset_defaults():
+    assert RebotArm102LeaderConfig(port="/dev/null").max_start_offset_deg is None
+    assert RebotArm102LeaderViscousConfig(port="/dev/null").max_start_offset_deg == 30.0
+
+
+def test_a_folded_leader_starts():
+    teleop, _ = _connect_at({})
+    assert teleop.is_connected
+    teleop.disconnect()
+
+
+def test_an_extended_joint_refuses_to_start_and_frees_the_bus():
+    bus = _bus_at({"wrist_flex": 40.0})
+    with pytest.raises(RuntimeError, match="leader is not at its zero pose") as excinfo:
+        _connect_at({}, bus=bus)
+    message = str(excinfo.value)
+    assert "wrist_flex at +40.0 deg" in message and "30 deg" in message
+    assert "shoulder_pan" not in message
+    assert "--teleop.max_start_offset_deg=null" in message
+    # The port is not held after a refused start.
+    bus.close.assert_called_once()
+
+
+def test_every_offending_joint_is_named():
+    with pytest.raises(RuntimeError) as excinfo:
+        _connect_at({"shoulder_lift": -45.0, "gripper": 90.0})
+    assert "shoulder_lift at -45.0 deg" in str(excinfo.value)
+    assert "gripper at +90.0 deg" in str(excinfo.value)
+
+
+def test_a_wrapped_reading_counts_from_zero():
+    # 358 deg is -2 deg from zero, not 358.
+    teleop, _ = _connect_at({"wrist_roll": 358.0})
+    assert teleop.is_connected
+    teleop.disconnect()
+
+
+def test_calibration_connect_skips_the_check():
+    # `lerobot-calibrate` connects with calibrate=False, which is when the arm may be away from zero.
+    teleop, _ = _connect_at(dict.fromkeys(("shoulder_pan", "elbow_flex"), 90.0), calibrate=False)
+    assert teleop.is_connected
+    teleop.disconnect()

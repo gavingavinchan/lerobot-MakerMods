@@ -17,8 +17,10 @@
 """Pre-teleop check: is the Star leader sitting in its zero pose?
 
 Read-only. Never commands a position, never unlocks, never touches calibration or the follower.
-Run it before every `lerobot-teleoperate` session: on connect the follower drives to the leader's
-pose, so a leader left away from zero becomes the follower's first motion.
+On connect the follower drives to the leader's pose, so a leader left away from zero becomes the
+follower's first motion. The leader's connect now enforces that itself through
+`max_start_offset_deg` (30 deg on the Viscous preset); this script remains for a tighter,
+standalone per-joint read-out.
 
 Every joint's zero is raw 0 deg. `shoulder_pan` lost its origin when that joint of the leader was
 reassembled; on 2026-09-14 its servo origin was re-set with `examples/rebot_102/star_zero_one_joint.py`
