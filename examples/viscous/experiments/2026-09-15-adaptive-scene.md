@@ -1,6 +1,7 @@
 # 2026-09-15 — adaptation to a changed ball and foam position
 
-**Current outcome: no successful capture or deposit.** The operator intentionally moved
+**Final outcome: successful pickup and deposit in `scale_05`, confirmed by the operator.**
+Earlier retries failed. The operator intentionally moved
 the ball and rotated/repositioned the foam to test adaptation. Matching the original scene
 was not the objective; the operator explicitly corrected the suggestion to reset it.
 
@@ -96,3 +97,79 @@ Retain these lessons:
 - Preserve unsuccessful attempts and operator interventions alongside successful ones.
 
 See [TODO.md](../TODO.md) for remaining controller and thermal work.
+
+## Successful correction using the demonstrated ball size
+
+The operator identified the remaining mismatch as the gripper being too far back from the
+ball, and directed comparison of its apparent size in the wrist camera with the demonstration.
+This resolved an error in interpreting image position as approach progress. At raw reference
+12.0 s the demonstrated ball bounding box was 153×145 px, centroid (300.2, 404.1). In local
+retry `elbow6_grip0`, it was only 120×118 px, centroid (310.3, 353.4). Raising the elbow through
+offsets +5° to +9° moved the ball downward in the image but reduced segmented area from
+11,140 to 9,666 px². It did not achieve the required proximity.
+
+Measurements use HSV segmentation of the orange ball in 640×480 wrist frames. Framing,
+partial occlusion, rotation, and contact affect these values; they are a local comparison,
+not calibrated depth. The successful capture began at about 145 px width, so exact equality
+with the demonstrated 153 px is not required.
+
+`adaptive_run_01/scale_05/` records the following completed sequence. Offsets are absolute
+corrections from the indicated raw reference phase; each offset command changed a joint by
+at most 3°. Omitted yaw/roll/gripper offsets were zero until deposit preparation.
+
+| Checkpoint | Raw reference (s) | Pan / shoulder / elbow / wrist-flex offsets (°) | Ball width / centroid (px) |
+| --- | --- | --- | --- |
+| Baseline approach | 12.0 | +18 / 0 / 0 / 0 | 133 / (293.6, 245.2) |
+| Forward correction 1 | 12.0 | +18 / −3 / 0 / +3 | 135 / (287.2, 266.4) |
+| Forward correction 2 | 12.0 | +18 / −6 / 0 / +6 | 138 / (282.0, 289.9) |
+| Forward correction 3, lateral refinement | 12.0 | +16.5 / −9 / 0 / +9 | 142 / (298.8, 314.5) |
+| Approach refinement | 12.0 | +16.5 / −10 / +3 / +10 | 146 / (301.9, 335.8) |
+| Before closure | 12.0 | +16.5 / −10 / +6 / +10 | 145 / (301.3, 357.6) |
+| Capture | 12.5 | +16.5 / −10 / +6 / +10 | 144 / (309.3, 400.5) |
+| Small lift, gripper target held | 12.5 | +16.5 / −7 / +6 / +10 | 145 / (309.2, 400.7) |
+| Retained transfer | 13.8 | +16.5 / −7 / +6 / +10 | 144 / (309.4, 399.8) |
+
+At capture the gripper measured −80.37° with 1.69 Nm reported torque against a −75.49° target.
+This differed from the nearly unloaded empty closures. The ball remained in essentially the
+same wrist-image position through the small lift and transfer while the external scene moved.
+The external view then showed it held over the foam opening. These observations, followed
+by the final deposited ball and operator confirmation, establish success for this attempt.
+
+The capture segment from 12.0 to 12.5 s also changes pan, elbow, and wrist yaw slightly; this
+was not fully independent gripper closure. The subsequent +3° shoulder lift occurred only
+after capture evidence. Do not attribute the entire successful correction to one joint.
+
+For deposit, pan offset changed +16.5 → +13.5 → +10.5° and gripper offset 0 → −3 → −6° at
+reference 13.8 s. Following to 14.6 s opened the gripper to a measured −90.10° with about
+−0.01 Nm torque. The ball was released into the opening. Following to 17.9 s folded the arm;
+shoulder, elbow, wrist-flex and gripper offsets were removed in bounded steps. Pan offset
+remained +10.5°. The final external image shows the ball inside the foam after the arm cleared
+it. The foam shifted slightly; this is placement into its final opening, not a fixed-target
+precision measurement. Torque remains enabled; no shutdown or hardware handoff occurred.
+
+The user explicitly confirmed: “success!. once again, log down this episode and record down
+what you learnt”. This is the second overall successful attempt and the first in the changed
+scene, following multiple misses. It does not establish a general success rate.
+
+### Frozen episode and remaining limitations
+
+- Live-source checkpoints: `/home/gavin/Documents/robot-experiments/reference-pick-place/adaptive_run_01/scale_05/`.
+- Frozen export: `/home/gavin/Documents/robot-experiments/hf-viscous-pick-place-2026-09-15/adaptive_success/`.
+- Export boundary: wall time 1789524779140297712–1789524877189617542 ns; approximately 98 s.
+- 977 telemetry rows, 2,451 wrist frames, 490 external frames; original compressed MJPEG
+  packets verified after AVI remux; timestamp-aligned MP4 frame counts verified by decoding.
+- Commands, paired checkpoint images, operator-confirmed result, exporter and command helper
+  are preserved. Earlier retry checkpoints remain alongside the successful episode.
+- Peak temperature was 68 °C, including the return; the final recorded powered hold was
+  64 °C and subsequently cooled. Decision delays and timely thermal unloading still need work.
+  Integrating the sampled `moving` flag gives approximately 24.49 s moving and 73.48 s
+  holding across the interval. Holding includes observation, reasoning/tool gaps and settling;
+  this telemetry does not separately measure model reasoning time.
+  Camera capture ran continuously; this success does not demonstrate improved camera latency.
+- This export is synchronized evidence, not a newly trained model or native LeRobot training
+  episode. Learning here means retained operating notes and data for future controllers.
+
+Apply the lesson as a procedure: compare size and position with a compatible wrist reference,
+make small coordinated approach corrections, close and check retention before lifting, then
+adapt deposit alignment to the actual foam. After an empty closure, reopen and retry locally;
+do not restart the entire trajectory solely because of a miss.

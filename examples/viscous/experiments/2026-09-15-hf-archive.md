@@ -6,7 +6,9 @@ helper defaults to the logged-in personal account and `viscous-pick-place-2026-0
 
 Archive: `/home/gavin/Documents/robot-experiments/hf-viscous-pick-place-2026-09-15/`.
 
-- 62 checksummed files, approximately 1.08 GB, plus `SHA256SUMS`.
+- The original successful-attempt bundle was 62 checksummed files, approximately 1.08 GB.
+  The bundle now also includes the changed-scene success and earlier retry checkpoints;
+  the regenerated `SHA256SUMS` covers the expanded contents.
 - The first successful agent attempt through its saved result: 3,186 telemetry samples,
   8,010 wrist frames, 1,599 external frames, baseline/result, and final images.
 - Original compressed video packets remuxed to finalized AVI files; packet hashes checked
@@ -14,8 +16,14 @@ Archive: `/home/gavin/Documents/robot-experiments/hf-viscous-pick-place-2026-09-
   verified to contain the same frame counts.
 - Original demonstration, native LeRobot task crop, alignment metadata, source, calibration
   snapshots, and reviews. The archive root is not itself a native LeRobot dataset.
-- The upload bundle freezes the first successful attempt. Later changed-scene attempts remain
-  separate in `reference-pick-place/adaptive_run_01/` and are not included in this bundle.
+- `adaptive_success/` freezes the operator-confirmed changed-scene pickup/deposit: about
+  98 s, 977 telemetry rows, 2,451 wrist frames and 490 external frames, original compressed
+  packets remuxed and hash-verified, and timestamp-aligned MP4 copies with verified frame counts.
+  It includes commands, paired checkpoints, result and source provenance. This is the second
+  overall success, after multiple misses, not a benchmark success rate.
+- `adaptive_retry_checkpoints/` preserves local probe and failed-retry images/status/commands.
+  Their full continuous videos remain in `reference-pick-place/adaptive_run_01/`; the bundle
+  does not claim to contain every frame from all retries.
 
 The source controller was still recording when the successful interval was extracted; it
 was not stopped for export. Its subsequent supported normal release is documented in the

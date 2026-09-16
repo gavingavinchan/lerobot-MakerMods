@@ -11,9 +11,9 @@ an episode alone does not establish an improved controller. Current evidence con
 | --- | --- | --- |
 | [2026-09-15 follower-only trial](experiments/2026-09-15-orange-ball.md) | No grasp | Gripper direction, small visual corrections, and heating during slow motion/long holds |
 | [2026-09-15 reference-guided trial](experiments/2026-09-15-reference-pick-place.md) | One supervised pickup and deposit | A demonstrated joint trajectory plus local visual corrections worked in this scene |
-| [2026-09-15 changed-scene trial](experiments/2026-09-15-adaptive-scene.md) | No capture/deposit through the first saved capture result | Local joint-to-image responses; image alignment did not establish grasp height/retention |
+| [2026-09-15 changed-scene trial](experiments/2026-09-15-adaptive-scene.md) | Initial retries failed; subsequent pickup and deposit succeeded, confirmed by operator | Wrist ball size exposed insufficient approach distance; coordinated forward correction and closure before lift worked in this changed scene |
 
-One successful attempt is not a measured success rate. No verified URDF, Cartesian reach
+Two successful attempts across the original and changed scenes are not a measured success rate. No verified URDF, Cartesian reach
 model, or generally reliable autonomous policy was established by these trials.
 
 ## Lessons to apply
@@ -33,6 +33,16 @@ model, or generally reliable autonomous policy was established by these trials.
    that reference, not absolute poses or a universal correction. Two joints changed together:
    their separate effects and any degrees-to-distance relationship remain unmeasured. Image
    centering alone does not establish depth, clearance, or a secure grasp.
+   **Compare apparent ball size as well as position.** The operator's wrist-camera size cue
+   resolved the changed-scene miss: failed retries showed a ball about 120 px wide versus
+   153 px immediately before the demonstrated grasp (640×480 images). Coordinated negative
+   shoulder-lift / positive wrist-flex corrections increased apparent width to about 145 px;
+   closure then secured it. Do not keep raising the elbow merely to lower the ball in the
+   image: earlier isolated raises reduced its apparent size. These are local observations
+   with the same ball/camera, not calibrated distance or a universal 153 px threshold.
+   Successful offsets at reference 12.5 s were pan +16.5°, shoulder −10°, elbow +6°, wrist
+   flex +10°; see the report for the approach and distinct deposit corrections. Do not reuse
+   the pickup offsets blindly for placement into a moved foam opening.
 3. **More-negative gripper angles open the fingers on this calibrated unit.** The earlier
    opening-and-return check tracked within 1°. Confirm actual object capture visually;
    commanding closure does not prove capture. Do not transfer absolute gripper angles to
@@ -43,12 +53,21 @@ model, or generally reliable autonomous policy was established by these trials.
    check visual retention and measured gripper response, then lift. At the completed grasp
    sample, successful closure showed −79.77°/2.42 Nm against a −72.84° target; failed closure
    showed −72.85°/0.04 Nm. This contrast is supporting evidence, not a calibrated detector.
+   The successful changed-scene closure measured −80.37°/1.69 Nm against −75.49° commanded.
+   A +3° shoulder correction then lifted with the ball retained; the subsequent transfer
+   preserved its wrist-image position while the external view confirmed movement to the foam.
+   **After a miss, reopen and correct locally.** The operator explicitly rejects returning to
+   the beginning after each failed closure. Unload when needed for temperature, not merely
+   because one grasp failed. Successful `scale_05` made its corrections in one approach.
 4. **Minimize loaded waiting, not just movement speed.** In the successful run, about 101 s
    passed at the pregrasp reference phase, with only about 2.4 s spent applying corrections.
    The elbow later peaked at 80 °C. Plan the sequence and visual checkpoints before extending
    the arm; carry out lengthy analysis while it is in a verified resting state. Existing heat
    warnings require return to rest. Continuing this run past 60 °C and 75 °C is a behavior to
    correct, even though placement succeeded. See the [thermal guidance](../../docs/source/viscous_teleop.mdx#thermal-duty).
+   The later changed-scene success still peaked at 68 °C across a roughly 98 s recorded
+   interval. Pickup success did not resolve loaded waiting or thermal recovery. Prepare
+   deposit alignment and release decisions before lifting to avoid another long loaded pause.
 5. **Judge progress from measured state and images.** Peak sampled errors against sent
    commands were about 9.2° at the shoulder lift and 10.0° at the elbow. These differences do
    not by themselves indicate poor control: table contact can constrain motion, and the
@@ -84,6 +103,11 @@ model, or generally reliable autonomous policy was established by these trials.
   The replacement `reference_controller.py` fixes clipped-target completion and permits
   cumulative pan offsets up to 30° in <=3° increments. It remains experimental; the camera
   loop, parking, and thermal limitations are not resolved by that change.
+- Changed-scene success: `adaptive_run_01/scale_05/` under `reference-pick-place/` contains
+  commands, paired checkpoint images, telemetry snapshots, and operator-confirmed result.
+  A frozen `adaptive_success/` interval in the public-upload bundle preserves 977 telemetry
+  rows, 2,451 wrist frames and 490 external frames, with packet-verified AVI and aligned MP4.
+  Earlier failed retries are retained as evidence; publication still requires local HF login.
 
 ## Reduce time between seeing and acting
 

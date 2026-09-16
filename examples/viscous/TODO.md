@@ -6,14 +6,14 @@ context first within each item; dates are absolute.
 
 ## Next
 
-- **Changed-scene adaptation remains incomplete (2026-09-15).**
-  [Trial and local response measurements](experiments/2026-09-15-adaptive-scene.md).
-  The operator wants adaptation, not objects reset to the demonstration. +18° pan/+9° elbow
-  aligned the ball in the wrist view but did not capture it. The operator clarified that open
-  fingers rose from below the ball before securing it; later closure was effectively empty.
-  Enforce close-and-verify before lift, with independent gripper control at a held arm pose.
-  Peak sampled temperature reached 73 °C; reduce loaded decision delays and enforce a timely
-  return on warning. The replacement controller is holding folded in `adaptive_run_01`;
+- **Harden the successful changed-scene procedure (2026-09-15).**
+  [Successful adaptation and preceding misses](experiments/2026-09-15-adaptive-scene.md).
+  `scale_05` captured and deposited the ball after using the demonstrated wrist-image size
+  to correct insufficient approach distance; the operator confirmed success. Retain local
+  retries and close-and-verify before lift. Independent gripper control at a held arm pose
+  remains useful: reference closure still changes other joints slightly. The successful
+  interval peaked at 68 °C; reduce loaded decision delays and enforce timely thermal unloading.
+  The replacement controller returned to a powered folded hold in `adaptive_run_01`;
   inspect its fresh status before any new hardware owner. The old `run_02` process was cleanly
   released with operator support and is no longer the live controller.
 - **Reduce observation-to-command latency.** Camera capture in the successful run remained
@@ -22,8 +22,9 @@ context first within each item; dates are absolute.
   decision/command timing. Validate continuous monitored reference segments after controller
   fixes; a local visual correction loop is a further option. See [EXPERIENCE.md](EXPERIENCE.md).
 - **Measure improvement across supervised repeats.** The [experience guide](EXPERIENCE.md)
-  records lessons from both 2026-09-15 trials. After the controller fixes below, measure local
-  joint-to-image responses near pregrasp and repeatability with a consistent scene; compare
+  records original-scene and changed-scene successes, preceding misses, and measured local
+  joint-to-image responses. After the controller fixes below, measure repeatability and
+  adaptation across deliberate scene changes; compare
   outcomes, correction count, loaded hold time, and peak temperature. These measurements have
   not yet been performed.
 - **Reference-guided pick-and-place succeeded once (2026-09-15); harden the controller.**
