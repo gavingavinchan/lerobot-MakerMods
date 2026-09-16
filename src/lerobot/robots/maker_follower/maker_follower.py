@@ -385,7 +385,8 @@ class MakerFollower(Robot):
 
     @cached_property
     def observation_features(self) -> dict[str, type | tuple]:
-        return {**self._motors_ft, **self._telemetry_ft, **self._cameras_ft}
+        telemetry = self._telemetry_ft if self.config.telemetry_in_state else {}
+        return {**self._motors_ft, **telemetry, **self._cameras_ft}
 
     @cached_property
     def action_features(self) -> dict[str, type]:

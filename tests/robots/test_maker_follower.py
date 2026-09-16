@@ -62,6 +62,7 @@ def follower(tmp_path):
             port="/dev/fake",
             calibration_dir=tmp_path,
             startup_sync_speed_deg=None,
+            telemetry_in_state=True,
         )
     )
     r.bus = MagicMock()

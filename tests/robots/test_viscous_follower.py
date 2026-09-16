@@ -37,6 +37,7 @@ def follower(tmp_path):
             port="/dev/fake",
             calibration_dir=tmp_path,
             startup_sync_speed_deg=None,
+            telemetry_in_state=True,
         )
     )
     r.bus = MagicMock()
@@ -148,3 +149,26 @@ def test_a_dead_bus_ends_the_session(follower):
         follower.get_observation()
     with pytest.raises(RuntimeError, match="check arm power / CAN adapter"):
         follower.get_observation()
+
+
+@pytest.mark.parametrize("telemetry_in_state,width", [(False, 7), (True, 21)])
+def test_policy_state_width_is_explicit(telemetry_in_state, width, tmp_path):
+    from lerobot.utils.feature_utils import build_dataset_frame, hw_to_dataset_features
+
+    robot = ViscousFollower(
+        ViscousFollowerConfig(
+            port="/dev/fake", calibration_dir=tmp_path, telemetry_in_state=telemetry_in_state
+        )
+    )
+    features = hw_to_dataset_features(robot.observation_features, "observation")
+    actions = hw_to_dataset_features(robot.action_features, "action")
+    values = {
+        **{f"{joint}.pos": 1.0 for joint in JOINTS},
+        **{f"{joint}.temp": 35.0 for joint in JOINTS},
+        **{f"{joint}.torque": 0.1 for joint in JOINTS},
+    }
+    frame = build_dataset_frame(features, values, "observation")
+    assert features["observation.state"]["shape"] == (width,)
+    assert frame["observation.state"].shape == (width,)
+    assert actions["action"]["shape"] == (7,)
+    assert robot.config.temp_stop_c == 85.0

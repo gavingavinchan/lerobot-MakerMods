@@ -127,6 +127,11 @@ class MakerFollowerConfigBase:
     temp_critical_c: float = 75.0
     temp_stop_c: float | None = None
 
+    # Keep policy state compatible with the seven-joint MakerMods Lab stack.
+    # Diagnostics remain in get_observation() and thermal monitoring always runs;
+    # opt in only for datasets/policies intentionally trained on 21 state values.
+    telemetry_in_state: bool = False
+
     # How many consecutive read cycles a motor may return no CAN feedback before the follower
     # reacts. 30 cycles is half a second at 60 Hz. A single silent joint only logs a warning and
     # keeps serving its last known position (the others are still holding; ending the session
