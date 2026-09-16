@@ -11,6 +11,7 @@ an episode alone does not establish an improved controller. Current evidence con
 | --- | --- | --- |
 | [2026-09-15 follower-only trial](experiments/2026-09-15-orange-ball.md) | No grasp | Gripper direction, small visual corrections, and heating during slow motion/long holds |
 | [2026-09-15 reference-guided trial](experiments/2026-09-15-reference-pick-place.md) | One supervised pickup and deposit | A demonstrated joint trajectory plus local visual corrections worked in this scene |
+| [2026-09-15 changed-scene trial](experiments/2026-09-15-adaptive-scene.md) | No capture/deposit through the first saved capture result | Local joint-to-image responses; image alignment did not establish grasp height/retention |
 
 One successful attempt is not a measured success rate. No verified URDF, Cartesian reach
 model, or generally reliable autonomous policy was established by these trials.
@@ -23,6 +24,9 @@ model, or generally reliable autonomous policy was established by these trials.
    as a starting point; it does not prove the approaches have different reliability across
    repeated trials. Compare current object positions, camera framing, calibration, and actual
    arm pose before reusing a reference.
+   When the operator asks for adaptation, preserve the changed scene as the test. Do not
+   substitute resetting objects to the demonstration. A controller offset cap is a software
+   bound, not proof that the arm cannot reach the new object position.
 2. **Use wrist images for alignment and external images for task outcome.** At raw reference
    time 11.6 s, total offsets of +1.5° pan / +1° shoulder lift worsened alignment; total offsets
    of −1.5° pan / +2.5° shoulder lift improved it and preceded success. These are offsets from
@@ -69,6 +73,11 @@ model, or generally reliable autonomous policy was established by these trials.
 - Wrist and external video provide about 25 and 5 distinct frames/s respectively. Exporting
   at 60 Hz repeats frames; it does not improve camera feedback rate. Use timestamp sidecars
   for alignment. A moved camera invalidates assumptions tied to its earlier framing.
+- The [changed-scene review](experiments/2026-09-15-adaptive-scene.md) records local +3° elbow,
+  wrist-flex, and shoulder-lift probes, plus an operator-assisted normal controller handoff.
+  The replacement `reference_controller.py` fixes clipped-target completion and permits
+  cumulative pan offsets up to 30° in <=3° increments. It remains experimental; the camera
+  loop, parking, and thermal limitations are not resolved by that change.
 
 ## Reduce time between seeing and acting
 

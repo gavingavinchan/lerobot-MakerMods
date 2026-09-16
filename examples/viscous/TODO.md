@@ -6,6 +6,14 @@ context first within each item; dates are absolute.
 
 ## Next
 
+- **Changed-scene adaptation remains incomplete (2026-09-15).**
+  [Trial and local response measurements](experiments/2026-09-15-adaptive-scene.md).
+  The operator wants adaptation, not objects reset to the demonstration. +18° pan/+9° elbow
+  aligned the ball in the wrist view but did not capture it; establish grasp height/retention.
+  Peak sampled temperature reached 73 °C; reduce loaded decision delays and enforce a timely
+  return on warning. The replacement controller is holding folded in `adaptive_run_01`;
+  inspect its fresh status before any new hardware owner. The old `run_02` process was cleanly
+  released with operator support and is no longer the live controller.
 - **Reduce observation-to-command latency.** Camera capture in the successful run remained
   at roughly 40 ms/200 ms intervals while command gaps lasted tens of seconds. Batch views
   and telemetry, prepare narrow checkpoint decisions, and instrument capture/inspection/
@@ -21,7 +29,8 @@ context first within each item; dates are absolute.
   A 7.91-second teleop reference, staged execution, and camera-guided corrections (-1.5° pan,
   +2.5° shoulder lift) achieved pickup and deposit. Inspection pauses brought a motor to 80 °C;
   shorten loaded holds. The experimental controller needs completion checks against clipped
-  targets, a tested transition from powered folded pose to its initial-rest release gate, and
+  targets (fixed in the replacement `reference_controller.py`, not the archived source),
+  a tested automatic transition from powered folded pose to its initial-rest release gate, and
   independent recording finalization. At task completion it was holding folded, not disconnected;
   consult the linked live status before starting another controller. Do not reuse unattended.
 - **Follower-only pick-and-place experiment remains incomplete (2026-09-15).** The gripper and
