@@ -87,6 +87,7 @@ from lerobot.processor import (
 from lerobot.robots import (  # noqa: F401
     Robot,
     RobotConfig,
+    bi_metal_follower,
     bi_maker_follower,
     bi_openarm_follower,
     bi_rebot_b601_follower,
@@ -95,6 +96,7 @@ from lerobot.robots import (  # noqa: F401
     hope_jr,
     koch_follower,
     make_robot_from_config,
+    metal_follower,
     maker_follower,
     omx_follower,
     openarm_follower,
@@ -107,6 +109,7 @@ from lerobot.robots import (  # noqa: F401
 from lerobot.teleoperators import (  # noqa: F401
     Teleoperator,
     TeleoperatorConfig,
+    bi_metal_leader,
     bi_openarm_leader,
     bi_openarm_mini,
     bi_rebot_102_leader,
@@ -116,6 +119,7 @@ from lerobot.teleoperators import (  # noqa: F401
     keyboard,
     koch_leader,
     make_teleoperator_from_config,
+    metal_leader,
     omx_leader,
     openarm_leader,
     openarm_mini,

@@ -103,10 +103,13 @@ def make_teleoperator_from_config(config: TeleoperatorConfig) -> "Teleoperator":
         from .bi_openarm_mini import BiOpenArmMini
 
         return BiOpenArmMini(config)
-    elif config.type in ("rebot_102_leader", "rebot_102_leader_maker", "rebot_102_leader_viscous"):
-        # Same leader hardware and same driver; the Maker and Viscous variants only carry a
-        # different joint mapping (see config_rebot_102_leader_maker.py /
-        # config_rebot_102_leader_viscous.py).
+    elif config.type in (
+        "rebot_102_leader",
+        "rebot_102_leader_maker",
+        "rebot_102_leader_metal",
+        "rebot_102_leader_viscous",
+    ):
+        # Same leader hardware, with a mapping specific to each follower family.
         from .rebot_102_leader import RebotArm102Leader
 
         return RebotArm102Leader(config)
@@ -114,6 +117,14 @@ def make_teleoperator_from_config(config: TeleoperatorConfig) -> "Teleoperator":
         from .bi_rebot_102_leader import BiRebot102Leader
 
         return BiRebot102Leader(config)
+    elif config.type == "metal_leader":
+        from .metal_leader import MetalLeader
+
+        return MetalLeader(config)
+    elif config.type == "bi_metal_leader":
+        from .bi_metal_leader import BiMetalLeader
+
+        return BiMetalLeader(config)
     else:
         try:
             return cast("Teleoperator", make_device_from_device_class(config))
