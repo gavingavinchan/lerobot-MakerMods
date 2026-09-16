@@ -6,6 +6,31 @@ context first within each item; dates are absolute.
 
 ## Next
 
+- **Reduce observation-to-command latency.** Camera capture in the successful run remained
+  at roughly 40 ms/200 ms intervals while command gaps lasted tens of seconds. Batch views
+  and telemetry, prepare narrow checkpoint decisions, and instrument capture/inspection/
+  decision/command timing. Validate continuous monitored reference segments after controller
+  fixes; a local visual correction loop is a further option. See [EXPERIENCE.md](EXPERIENCE.md).
+- **Measure improvement across supervised repeats.** The [experience guide](EXPERIENCE.md)
+  records lessons from both 2026-09-15 trials. After the controller fixes below, measure local
+  joint-to-image responses near pregrasp and repeatability with a consistent scene; compare
+  outcomes, correction count, loaded hold time, and peak temperature. These measurements have
+  not yet been performed.
+- **Reference-guided pick-and-place succeeded once (2026-09-15); harden the controller.**
+  [Successful attempt and live-state notes](/home/gavin/Documents/robot-experiments/reference-pick-place/run_02/README.md).
+  A 7.91-second teleop reference, staged execution, and camera-guided corrections (-1.5° pan,
+  +2.5° shoulder lift) achieved pickup and deposit. Inspection pauses brought a motor to 80 °C;
+  shorten loaded holds. The experimental controller needs completion checks against clipped
+  targets, a tested transition from powered folded pose to its initial-rest release gate, and
+  independent recording finalization. At task completion it was holding folded, not disconnected;
+  consult the linked live status before starting another controller. Do not reuse unattended.
+- **Follower-only pick-and-place experiment remains incomplete (2026-09-15).** The gripper and
+  camera recording worked, but no grasp was achieved; the elbow reached 63 °C while holding
+  with significant target error. The arm was returned to rest and disconnected cleanly.
+  [Experiment log](./experiments/2026-09-15-orange-ball.md) links the durable video/telemetry
+  archive and records the operator's acceptance of light tabletop contact. Review measured
+  approach/lift motion and sustained holding loads before repeating; the archived controller's
+  general parking and exception paths are not validated for unattended use.
 - **Follower `wrist_flex` presses its folded-end stop.** The folded Star leader reads `wrist_flex`
   ~+10.6° raw, which maps to a follower target of about -11.5°. That is inside the follower's soft
   limits `(-120.8, 92.0)` but past where the wrist physically stops, so startup sync stalls ~10°

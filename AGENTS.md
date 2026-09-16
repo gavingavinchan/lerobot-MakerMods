@@ -60,6 +60,7 @@ pre-commit run --all-files                           # Lint + format (ruff, typo
 
 ## Viscous Arm teleop (hardware on this machine)
 
+- Before planning autonomous arm motion, read [`examples/viscous/EXPERIENCE.md`](./examples/viscous/EXPERIENCE.md). After an experiment, add evidence and outcomes to `examples/viscous/experiments/` and update the experience guide with supported lessons and their limits. Keep unfinished implementation work in `TODO.md`.
 - "run teleop" → `examples/viscous/teleop.sh start`; "stop teleop" → `teleop.sh stop` (the operator saying it means the arm is parked); `status` for health. Bash sandbox disabled. No pre-checks: the script and the arm code do them. On `FAILED`, relay the `hint:`.
 - **Never** run `lerobot-calibrate` for the follower or start with a `--robot.id` that has no calibration file: it re-zeros every motor.
 - **Never** end a session with `--teleop_time_s`, `kill -9` or unplugging: any end drops the arm (no brakes). If `stop` says SIGINT was not honoured, tell the operator.
