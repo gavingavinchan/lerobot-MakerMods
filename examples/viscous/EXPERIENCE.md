@@ -37,6 +37,12 @@ model, or generally reliable autonomous policy was established by these trials.
    opening-and-return check tracked within 1°. Confirm actual object capture visually;
    commanding closure does not prove capture. Do not transfer absolute gripper angles to
    another calibration or after a coupling shift.
+   In the changed-scene trial, the operator observed fingers starting below the ball and
+   rising before securing it. Elbow adjustments happened with the gripper open; closure
+   followed but captured nothing. Once positioned around the ball, hold height and close,
+   check visual retention and measured gripper response, then lift. At the completed grasp
+   sample, successful closure showed −79.77°/2.42 Nm against a −72.84° target; failed closure
+   showed −72.85°/0.04 Nm. This contrast is supporting evidence, not a calibrated detector.
 4. **Minimize loaded waiting, not just movement speed.** In the successful run, about 101 s
    passed at the pregrasp reference phase, with only about 2.4 s spent applying corrections.
    The elbow later peaked at 80 °C. Plan the sequence and visual checkpoints before extending

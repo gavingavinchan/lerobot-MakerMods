@@ -59,9 +59,24 @@ and residual motion limit isolated-effect estimates. Probe images remain availab
 
 The next approach used +18° pan and +9° elbow relative to the reference. The ball appeared
 between the jaws in the wrist image, but following the grasp/transfer segments did not lift
-or deposit it. The ball remained outside the foam. The exact cause of failed capture has not
-yet been established; operator feedback was requested to distinguish excessive height from
-contact without retention.
+or deposit it. The ball remained outside the foam. The operator clarified that the fingers
+started below the ball, then rose before securing it. Their earlier shorthand that the fingers
+were above the ball described the later condition, not an initially too-high approach.
+
+Telemetry supports a sequencing failure: while the elbow correction increased to +9°, the
+gripper stayed open at a sent target of −106.70° (measured −106.92° at correction completion).
+The subsequent grasp segment did command closure to −72.84°, but that did not capture the
+ball. At its first completed sample, the gripper measured −72.85° with reported torque
+0.04 Nm. In the successful run, the same sent closure target produced measured −79.77° and
+2.42 Nm at the corresponding completed sample, consistent with object resistance.
+These individual readings are useful comparative evidence, not general grasp-detection
+thresholds or proof of contact by themselves.
+
+The correction is to secure the ball before raising/transferring, rather than merely lower
+the next starting pose. Once jaws surround the ball at the appropriate height, hold the arm
+pose, close, check visual retention together with gripper position/torque response, then lift.
+The current reference-based tool couples multiple joints during a grasp segment; an explicit
+independent close-in-place operation would make this sequence easier to enforce.
 
 The arm returned folded; the extra elbow offset was removed in three small steps. Peak
 sampled temperature through the saved failed-capture result was 73 °C. Loaded delays and
@@ -76,6 +91,8 @@ Retain these lessons:
 - Single-joint probes plus paired images can establish local motion response without a URDF.
 - A centered ball in a wrist image does not prove fingers are at grasp height or have captured
   the ball. Confirm retention/lift before treating transfer as successful.
+- Do not keep raising open fingers to improve the image alignment. Preserve the operator's
+  full observation of the motion sequence; the eventual high pose was not the whole failure.
 - Preserve unsuccessful attempts and operator interventions alongside successful ones.
 
 See [TODO.md](../TODO.md) for remaining controller and thermal work.

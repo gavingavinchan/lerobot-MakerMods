@@ -9,7 +9,9 @@ context first within each item; dates are absolute.
 - **Changed-scene adaptation remains incomplete (2026-09-15).**
   [Trial and local response measurements](experiments/2026-09-15-adaptive-scene.md).
   The operator wants adaptation, not objects reset to the demonstration. +18° pan/+9° elbow
-  aligned the ball in the wrist view but did not capture it; establish grasp height/retention.
+  aligned the ball in the wrist view but did not capture it. The operator clarified that open
+  fingers rose from below the ball before securing it; later closure was effectively empty.
+  Enforce close-and-verify before lift, with independent gripper control at a held arm pose.
   Peak sampled temperature reached 73 °C; reduce loaded decision delays and enforce a timely
   return on warning. The replacement controller is holding folded in `adaptive_run_01`;
   inspect its fresh status before any new hardware owner. The old `run_02` process was cleanly
