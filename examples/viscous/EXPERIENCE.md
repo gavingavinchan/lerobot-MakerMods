@@ -12,6 +12,7 @@ an episode alone does not establish an improved controller. Current evidence con
 | [2026-09-15 follower-only trial](experiments/2026-09-15-orange-ball.md) | No grasp | Gripper direction, small visual corrections, and heating during slow motion/long holds |
 | [2026-09-15 reference-guided trial](experiments/2026-09-15-reference-pick-place.md) | One supervised pickup and deposit | A demonstrated joint trajectory plus local visual corrections worked in this scene |
 | [2026-09-15 changed-scene trial](experiments/2026-09-15-adaptive-scene.md) | Initial retries failed; subsequent pickup and deposit succeeded, confirmed by operator | Wrist ball size exposed insufficient approach distance; coordinated forward correction and closure before lift worked in this changed scene |
+| [2026-09-15 third requested attempt](experiments/2026-09-15-third-attempt.md) | Two empty closures including the continuation; no pickup or deposit; operator requested shutdown | Wrist-image matching alone did not establish capture; checkpoint-only thermal monitoring was inadequate |
 
 Two successful attempts across the original and changed scenes are not a measured success rate. No verified URDF, Cartesian reach
 model, or generally reliable autonomous policy was established by these trials.
@@ -40,6 +41,14 @@ model, or generally reliable autonomous policy was established by these trials.
    closure then secured it. Do not keep raising the elbow merely to lower the ball in the
    image: earlier isolated raises reduced its apparent size. These are local observations
    with the same ball/camera, not calibrated distance or a universal 153 px threshold.
+   In the third requested attempt, the ball was clipped at the bottom of the wrist image
+   (170x89 px) and remained behind the fingers. Do not equate clipped width with the
+   full-ball reference or close without resolving that geometry in the external view.
+   That closure was empty; local corrections did not resolve it.
+   After an operator reset, a full 145x141 px ball at (295, 352) also preceded an empty
+   closure with wrist-yaw offset -9 degrees. Image size/position matching is therefore
+   insufficient by itself across changed gripper orientations. The operator stopped
+   further attempts; see the third-attempt report for the hold and subsequent shutdown.
    Successful offsets at reference 12.5 s were pan +16.5°, shoulder −10°, elbow +6°, wrist
    flex +10°; see the report for the approach and distinct deposit corrections. Do not reuse
    the pickup offsets blindly for placement into a moved foam opening.
@@ -68,6 +77,10 @@ model, or generally reliable autonomous policy was established by these trials.
    The later changed-scene success still peaked at 68 °C across a roughly 98 s recorded
    interval. Pickup success did not resolve loaded waiting or thermal recovery. Prepare
    deposit alignment and release decisions before lifting to avoid another long loaded pause.
+   The third requested attempt peaked at 68 C despite a cooling interval. Later checkpoint
+   temperatures rose from 51 C to 67 C. Temperature checks between conversational tool
+   calls did not enforce timely unloading; an active monitor and validated return path
+   remain necessary before repeating this procedure.
 5. **Judge progress from measured state and images.** Peak sampled errors against sent
    commands were about 9.2° at the shoulder lift and 10.0° at the elbow. These differences do
    not by themselves indicate poor control: table contact can constrain motion, and the
@@ -86,6 +99,10 @@ model, or generally reliable autonomous policy was established by these trials.
 
 ## Reference material and limits
 
+- Latest shutdown: after stopping the third attempt, the operator explicitly requested
+  immediate torque release while supporting the arm. The `adaptive_run_01` controller was
+  terminated; watchdog torque release is expected but was not independently measured.
+  That controller is no longer live. See the third-attempt report's shutdown addendum.
 - Demonstration: `/home/gavin/Documents/robot-experiments/teleop-demo-20260915-182851/`.
   `task_crop/episode/` contains 7.91 s of task motion and initial retreat. Full `samples.jsonl`
   also contains the later return motion. The experimental controller interpolated its

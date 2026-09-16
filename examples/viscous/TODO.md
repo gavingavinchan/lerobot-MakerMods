@@ -6,6 +6,20 @@ context first within each item; dates are absolute.
 
 ## Next
 
+- **Third requested attempt failed; resolve near-ball geometry and active thermal return (2026-09-15).**
+  [Evidence and limits](experiments/2026-09-15-third-attempt.md). The operator stopped after
+  two empty closures across the initial scene and reset. Controller PID 90072 was subsequently
+  terminated for explicitly requested immediate torque release while the operator supported
+  the arm. Watchdog release is expected but was not independently measured. The controller,
+  cameras, and experimental thermal watcher are no longer running; older hold snapshots are
+  historical. Add a supported operator-assisted torque-release path and independent recording
+  finalization so shutdown does not require process termination.
+  Checkpoint-only monitoring allowed a 68 C peak. The later external watcher completed limited
+  empty-gripper returns at 55 C. Its first shell session exited; heartbeat checking blocked
+  further motion until a detached watcher was started. Validate watcher lifetime, controlled
+  return with an object, and independent gripper closure before treating this as hardened
+  control. Full ball-image size/position matching still preceded an empty closure in the
+  changed wrist orientation; resolve grasp geometry using paired views and measured response.
 - **Harden the successful changed-scene procedure (2026-09-15).**
   [Successful adaptation and preceding misses](experiments/2026-09-15-adaptive-scene.md).
   `scale_05` captured and deposited the ball after using the demonstrated wrist-image size
@@ -13,9 +27,9 @@ context first within each item; dates are absolute.
   retries and close-and-verify before lift. Independent gripper control at a held arm pose
   remains useful: reference closure still changes other joints slightly. The successful
   interval peaked at 68 °C; reduce loaded decision delays and enforce timely thermal unloading.
-  The replacement controller returned to a powered folded hold in `adaptive_run_01`;
-  inspect its fresh status before any new hardware owner. The old `run_02` process was cleanly
-  released with operator support and is no longer the live controller.
+  The replacement controller's powered folded hold in `adaptive_run_01` is historical;
+  that process was terminated after the third attempt. The old `run_02` process was cleanly
+  released with operator support. Neither archived session is a live controller.
 - **Reduce observation-to-command latency.** Camera capture in the successful run remained
   at roughly 40 ms/200 ms intervals while command gaps lasted tens of seconds. Batch views
   and telemetry, prepare narrow checkpoint decisions, and instrument capture/inspection/
